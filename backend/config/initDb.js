@@ -118,23 +118,8 @@ const initDatabase = async () => {
       `);
     }
 
-    // 4. CRÉATION DU COMPTE ADMIN PAR DÉFAUT
-    const adminCheck = await client.query("SELECT * FROM users WHERE username = 'admin'");
-    if (adminCheck.rows.length === 0) {
-      console.log("⚡ Création du compte admin par défaut...");
-      const hashedPassword = await bcrypt.hash("12345", 10);
-      
-      const devGrade = await client.query("SELECT id FROM grades WHERE level = 99 LIMIT 1");
-      const devGradeId = devGrade.rows[0]?.id;
-
-      if (devGradeId) {
-        await client.query(`
-          INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, is_admin, is_active)
-          VALUES ($1, $2, 'System', 'Admin', '000', $3, TRUE, TRUE)
-        `, ['admin', hashedPassword, devGradeId]);
-        console.log("✅ Compte 'admin' / '12345' créé avec succès.");
-      }
-    }
+    // SUPPRESSION DE LA CRÉATION AUTOMATIQUE DU COMPTE ADMIN
+    // L'ancien bloc de code pour créer 'admin'/'12345' a été supprimé ici.
 
     console.log("✅ Base de données LSPD prête !");
 
