@@ -8,10 +8,18 @@ const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const IS_PROD = process.env.NODE_ENV === "production";
 
 console.log("👮 LSPD MDT System Starting...");
 
-app.use(cors({ origin: true, credentials: true }));
+// Health check
+app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+
+// Middlewares
+app.use(cors({ 
+  origin: IS_PROD ? process.env.PUBLIC_URL : true, 
+  credentials: true 
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -29,14 +37,21 @@ const startServer = async () => {
       store: new PgSession({ pool: pool, tableName: "session", createTableIfMissing: true }),
       secret: process.env.SESSION_SECRET || "lspd-secret-key",
       resave: false, saveUninitialized: false,
-      cookie: { secure: process.env.NODE_ENV === "production", maxAge: 7 * 24 * 60 * 60 * 1000 }
+      proxy: true,
+      cookie: { 
+        secure: IS_PROD,
+        httpOnly: true, 
+        maxAge: 7 * 24 * 60 * 60 * 1000 
+      }
     }));
 
     app.use(passport.initialize());
     app.use(passport.session());
+    
+    // Auth Middleware global
     app.use("/api", extractUser);
 
-    // Routes
+    // Routes Actives LSPD
     app.use("/api/auth", require("./routes/auth"));
     app.use("/api/users", require("./routes/users"));
     app.use("/api/appointments", require("./routes/appointments")); // Gestion Plaintes
@@ -47,11 +62,12 @@ const startServer = async () => {
     app.use("/api/reports", require("./routes/reports"));
     app.use("/api/diagnosis", require("./routes/diagnosis"));
 
-    // Frontend
+    // Frontend Static Serving
     const distPath = path.resolve(__dirname, "../frontend/dist");
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
       app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+      console.log("✅ Frontend served.");
     }
 
     app.listen(PORT, () => console.log(`🚀 LSPD Server active on port ${PORT}`));
