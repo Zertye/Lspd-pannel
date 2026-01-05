@@ -20,7 +20,8 @@ const PERMISSIONS_LIST = [
   { key: "manage_users", label: "Gérer Utilisateurs", description: "Créer et modifier les officiers" },
   { key: "delete_users", label: "Exclure Officiers", description: "Supprimer définitivement les officiers" },
   { key: "manage_grades", label: "Gérer Grades", description: "Modifier les grades et permissions" },
-  { key: "view_logs", label: "Voir les Logs", description: "Accéder aux journaux d'audit" }
+  { key: "view_logs", label: "Voir les Logs", description: "Accéder aux journaux d'audit" },
+  { key: "force_end_service", label: "Forcer Fin Service", description: "Forcer la mise hors service d'un officier" }
 ];
 
 const PATROL_STATUSES = [
@@ -433,112 +434,177 @@ function Layout({ children }) {
 
 function Dashboard() {
   const { user, hasPerm } = useAuth()
-  const [stats, setStats] = useState(null)
   const [myStats, setMyStats] = useState(null)
+  const [serviceStatus, setServiceStatus] = useState(null)
   const [patrolTimes, setPatrolTimes] = useState([])
-  const [centraleStats, setCentraleStats] = useState(null)
+  const [recentActivity, setRecentActivity] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const isAdmin = hasPerm('view_logs')
 
   useEffect(() => {
-    if (hasPerm('view_logs')) {
-      apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
+    const loadData = async () => {
+      try {
+        // Stats perso (tout le monde)
+        const statsRes = await apiFetch("/api/users/me/stats")
+        if (statsRes.ok) setMyStats(await statsRes.json())
+
+        // Statut de service (tout le monde)
+        const serviceRes = await apiFetch("/api/centrale/service/status")
+        if (serviceRes.ok) setServiceStatus(await serviceRes.json())
+
+        // Admin only
+        if (isAdmin) {
+          const patrolRes = await apiFetch("/api/centrale/patrol-times")
+          if (patrolRes.ok) setPatrolTimes(await patrolRes.json())
+
+          const activityRes = await apiFetch("/api/admin/logs?limit=15")
+          if (activityRes.ok) setRecentActivity(await activityRes.json())
+        }
+      } catch (e) {
+        console.error("Erreur chargement dashboard:", e)
+      }
+      setLoading(false)
     }
-    apiFetch("/api/users/me/stats").then(r => r.ok ? r.json() : null).then(setMyStats).catch(() => {})
-    apiFetch("/api/centrale/patrol-times").then(r => r.ok ? r.json() : []).then(setPatrolTimes).catch(() => [])
-    apiFetch("/api/centrale/stats").then(r => r.ok ? r.json() : null).then(setCentraleStats).catch(() => {})
-  }, [])
+    loadData()
+  }, [isAdmin])
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </Layout>
+    )
+  }
 
   return (
     <Layout>
+      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">TABLEAU DE BORD</h1>
-        <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
+        <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-1">
+          Bienvenue, {user?.first_name}
+        </h1>
+        <p className="text-slate-500">{user?.grade_name} • Matricule {user?.badge_number || "N/A"}</p>
       </div>
 
-      {/* Stats Centrale */}
-      {centraleStats && (
-        <>
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Centrale en direct</h2>
-          <div className="grid md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="En Service" value={centraleStats.officersOnline} icon={UserCheck} color="green" />
-            <StatCard label="Patrouilles" value={centraleStats.activePatrols} icon={Car} color="blue" />
-            <StatCard label="Appels en cours" value={centraleStats.pendingCalls} icon={PhoneCall} color="yellow" />
-            <StatCard label="Services Aujourd'hui" value={centraleStats.todayServices} icon={Timer} color="purple" />
+      {/* ============ VUE OFFICIER (tout le monde) ============ */}
+      <div className="grid lg:grid-cols-2 gap-6 mb-8">
+        
+        {/* Stats personnelles */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
+          <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Mes Statistiques</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="text-center p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+              <p className="text-3xl font-black text-blue-600">{myStats?.my_appointments || 0}</p>
+              <p className="text-xs text-slate-500 font-medium mt-1">Plaintes traitées</p>
+            </div>
+            <div className="text-center p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+              <p className="text-3xl font-black text-emerald-600">{formatDuration(user?.total_patrol_time || 0)}</p>
+              <p className="text-xs text-slate-500 font-medium mt-1">Temps de patrouille</p>
+            </div>
           </div>
-        </>
-      )}
+        </div>
 
-      <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Performance</h2>
-      <div className="grid md:grid-cols-3 gap-6 mb-8">
-        <StatCard label="Dossiers Traités" value={myStats?.my_appointments || "0"} icon={ClipboardList} color="blue" />
-        <StatCard label="Civils Enregistrés" value={myStats?.my_patients || "0"} icon={Users} color="green" />
-        <StatCard label="Statut" value="En Service" icon={CheckCircle} color="yellow" />
+        {/* Patrouille actuelle */}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-slate-200 dark:border-slate-700">
+          <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Patrouille</h2>
+          
+          {serviceStatus?.isOnDuty ? (
+            serviceStatus.patrol ? (
+              <div className="flex items-center gap-4">
+                <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                  serviceStatus.patrol.status === 'emergency' ? 'bg-red-100 dark:bg-red-900/30' :
+                  serviceStatus.patrol.status === 'busy' ? 'bg-amber-100 dark:bg-amber-900/30' :
+                  'bg-emerald-100 dark:bg-emerald-900/30'
+                }`}>
+                  <Car size={28} className={
+                    serviceStatus.patrol.status === 'emergency' ? 'text-red-600' :
+                    serviceStatus.patrol.status === 'busy' ? 'text-amber-600' :
+                    'text-emerald-600'
+                  }/>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-lg text-slate-800 dark:text-white">{serviceStatus.patrol.name}</p>
+                  {serviceStatus.patrol.call_sign && (
+                    <p className="text-blue-500 font-mono text-sm">{serviceStatus.patrol.call_sign}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1">
+                    {serviceStatus.patrol.sector && (
+                      <span className="text-xs text-slate-400 flex items-center gap-1">
+                        <MapPin size={12}/> {serviceStatus.patrol.sector}
+                      </span>
+                    )}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                      serviceStatus.patrol.status === 'emergency' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                      serviceStatus.patrol.status === 'busy' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    }`}>
+                      {serviceStatus.patrol.status === 'emergency' ? 'URGENCE' :
+                       serviceStatus.patrol.status === 'busy' ? 'OCCUPÉ' : 'DISPONIBLE'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <AlertCircle size={24} className="text-amber-600"/>
+                </div>
+                <p className="text-slate-600 dark:text-slate-300 font-medium">Aucune patrouille assignée</p>
+                <Link to="/centrale" className="text-blue-500 text-sm hover:underline mt-1 inline-block">
+                  Rejoindre une patrouille →
+                </Link>
+              </div>
+            )
+          ) : (
+            <div className="text-center py-4">
+              <div className="w-12 h-12 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Radio size={24} className="text-slate-400"/>
+              </div>
+              <p className="text-slate-500 font-medium">Hors service</p>
+              <Link to="/centrale" className="text-blue-500 text-sm hover:underline mt-1 inline-block">
+                Prendre son service →
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
 
-      {stats && (
-        <>
-          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Vue Globale Commandement</h2>
-          <div className="grid md:grid-cols-4 gap-6 mb-8">
-            <StatCard label="Effectif Total" value={stats.users?.total || 0} icon={Shield} color="blue" />
-            <StatCard label="Plaintes En Attente" value={stats.appointments?.pending || 0} icon={AlertTriangle} color="red" />
-            <StatCard label="Citoyens Fichés" value={stats.patients?.total || 0} icon={Users} color="blue" />
-            <StatCard label="Rapports" value={stats.reports?.total || 0} icon={FileText} color="green" />
-          </div>
-        </>
-      )}
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Accès Rapide</h2>
-          <div className="grid md:grid-cols-2 gap-4 mb-6">
-            <Link to="/centrale" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-purple-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
-              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><Radio size={24}/></div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white">Centrale</h3>
-                <p className="text-xs text-slate-500">Gestion des patrouilles</p>
-              </div>
-              <ChevronRight className="ml-auto text-slate-400"/>
-            </Link>
-            <Link to="/plaintes" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
-              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><ClipboardList size={24}/></div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white">Gérer Plaintes</h3>
-                <p className="text-xs text-slate-500">Traiter les dépôts de plainte</p>
-              </div>
-              <ChevronRight className="ml-auto text-slate-400"/>
-            </Link>
-            <Link to="/roster" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-emerald-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
-              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Users size={24}/></div>
-              <div>
-                <h3 className="font-bold text-slate-800 dark:text-white">Effectif LSPD</h3>
-                <p className="text-xs text-slate-500">Voir la liste des officiers</p>
-              </div>
-              <ChevronRight className="ml-auto text-slate-400"/>
-            </Link>
-          </div>
-
-          {/* Temps de patrouille */}
-          <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
-            <Timer size={20} className="text-blue-500"/>
-            Temps de Patrouille
-          </h2>
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      {/* ============ VUE ADMIN (si permission view_logs) ============ */}
+      {isAdmin && (
+        <div className="grid lg:grid-cols-3 gap-6">
+          
+          {/* Classement temps de patrouille */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Timer size={18} className="text-blue-500"/>
+                Classement Temps de Patrouille
+              </h2>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500">
+                <thead className="bg-slate-50 dark:bg-slate-900/50 text-xs uppercase font-bold text-slate-500">
                   <tr>
+                    <th className="px-4 py-3 text-left">#</th>
                     <th className="px-4 py-3 text-left">Officier</th>
                     <th className="px-4 py-3 text-left">Grade</th>
                     <th className="px-4 py-3 text-right">Temps Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {patrolTimes.slice(0, 10).map((p, i) => (
-                    <tr key={p.id} className={i < 3 ? "bg-amber-50/50 dark:bg-amber-900/10" : ""}>
-                      <td className="px-4 py-3 font-medium flex items-center gap-2">
-                        {i === 0 && <Crown size={16} className="text-amber-500"/>}
-                        {i === 1 && <Star size={16} className="text-slate-400"/>}
-                        {i === 2 && <Star size={16} className="text-amber-700"/>}
-                        <span className="text-slate-800 dark:text-white">{p.first_name} {p.last_name}</span>
+                    <tr key={p.id} className={i < 3 ? "bg-amber-50/30 dark:bg-amber-900/10" : ""}>
+                      <td className="px-4 py-3 w-12">
+                        {i === 0 ? <Crown size={18} className="text-amber-500"/> :
+                         i === 1 ? <span className="text-slate-400 font-bold">2</span> :
+                         i === 2 ? <span className="text-amber-700 font-bold">3</span> :
+                         <span className="text-slate-400">{i + 1}</span>}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-800 dark:text-white">
+                        {p.first_name} {p.last_name}
                       </td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-1 rounded text-xs font-medium" style={{backgroundColor: p.grade_color + '20', color: p.grade_color}}>
@@ -546,14 +612,14 @@ function Dashboard() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-slate-600 dark:text-slate-300">
-                        {formatDurationLong(p.total_patrol_time || p.calculated_time || 0)}
+                        {formatDurationLong(p.total_patrol_time || 0)}
                       </td>
                     </tr>
                   ))}
                   {patrolTimes.length === 0 && (
                     <tr>
-                      <td colSpan="3" className="px-4 py-8 text-center text-slate-400">
-                        Aucune donnée de patrouille
+                      <td colSpan="4" className="px-4 py-8 text-center text-slate-400">
+                        Aucune donnée
                       </td>
                     </tr>
                   )}
@@ -561,25 +627,54 @@ function Dashboard() {
               </table>
             </div>
           </div>
-        </div>
 
-        <div>
-          <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Activité Récente</h2>
-          <div className="space-y-3">
-            {myStats?.recent_activity?.length > 0 ? (
-              myStats.recent_activity.map(a => (
-                <div key={a.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-sm">
-                  <div className="font-bold text-slate-800 dark:text-white uppercase text-xs tracking-wider mb-1 text-blue-500">{a.title}</div>
-                  <div className="text-slate-300 font-medium mb-1">{a.patient_name}</div>
-                  <div className="text-xs text-slate-500 text-right">{new Date(a.date).toLocaleDateString()}</div>
+          {/* Activité récente */}
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Activity size={18} className="text-purple-500"/>
+                Activité Récente
+              </h2>
+            </div>
+            <div className="max-h-[400px] overflow-y-auto">
+              {recentActivity.length > 0 ? (
+                <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+                  {recentActivity.map((log, i) => (
+                    <div key={i} className="p-3 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          log.action?.includes('DELETE') ? 'bg-red-100 dark:bg-red-900/30 text-red-600' :
+                          log.action?.includes('CREATE') ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600' :
+                          'bg-blue-100 dark:bg-blue-900/30 text-blue-600'
+                        }`}>
+                          {log.action?.includes('DELETE') ? <Trash2 size={14}/> :
+                           log.action?.includes('CREATE') ? <Plus size={14}/> :
+                           <Pencil size={14}/>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-slate-800 dark:text-white font-medium truncate">
+                            {log.first_name} {log.last_name}
+                          </p>
+                          <p className="text-xs text-slate-500 truncate">{log.action}</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {new Date(log.created_at).toLocaleString('fr-FR', {
+                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))
-            ) : (
-              <div className="text-center p-6 text-slate-400 bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">Aucune activité récente</div>
-            )}
+              ) : (
+                <div className="p-8 text-center text-slate-400">
+                  Aucune activité
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </Layout>
   )
 }
@@ -589,7 +684,7 @@ function Dashboard() {
 // ============================================================================
 
 function Centrale() {
-  const { user } = useAuth()
+  const { user, hasPerm } = useAuth()
   const [serviceStatus, setServiceStatus] = useState(null)
   const [onlineOfficers, setOnlineOfficers] = useState([])
   const [patrols, setPatrols] = useState([])
@@ -768,6 +863,21 @@ function Centrale() {
       body: JSON.stringify({ userId })
     })
     if (res.ok) loadData()
+  }
+
+  // Forcer fin de service
+  const forceEndService = async (userId, officerName) => {
+    if (!window.confirm(`Forcer la fin de service de ${officerName} ?`)) return
+    const res = await apiFetch("/api/centrale/service/force-end", {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) {
+      loadData()
+    } else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
   }
 
   // Notes
@@ -964,6 +1074,18 @@ function Centrale() {
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/30"
                     >
                       <Headphones size={12}/> Centrale
+                    </button>
+                  </div>
+                )}
+                
+                {/* Bouton forcer fin de service */}
+                {hasPerm('force_end_service') && officer.id !== user.id && (
+                  <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <button
+                      onClick={() => forceEndService(officer.id, `${officer.first_name} ${officer.last_name}`)}
+                      className="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs bg-red-600/20 text-red-400 rounded hover:bg-red-600/30"
+                    >
+                      <StopCircle size={12}/> Forcer fin service
                     </button>
                   </div>
                 )}
