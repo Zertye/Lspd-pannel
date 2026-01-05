@@ -363,7 +363,7 @@ function Roster() {
                   {grouped[cat].sort((a,b) => b.grade_level - a.grade_level).map(m => (
                      <div key={m.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl flex items-center gap-4 border border-slate-200 dark:border-slate-700 shadow-sm">
                         <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 overflow-hidden">
-                           {m.profile_picture ? <img src={m.profile_picture} className="w-full h-full object-cover"/> : m.username[0]}
+                           {m.profile_picture ? <img src={m.profile_picture} className="w-full h-full object-cover"/> : (m.first_name?.[0] || "?")}
                         </div>
                         <div>
                            <p className="font-bold text-slate-800 dark:text-white">{m.grade_name}</p>
