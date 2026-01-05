@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link, useNavigate } from "react-router-dom"
-import { createContext, useContext, useState, useEffect } from "react"
+import { createContext, useContext, useState, useEffect, useRef } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
   CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity,
-  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus
+  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus, User, Camera
 } from "lucide-react"
 
 // --- Theme Context ---
@@ -80,6 +80,8 @@ function AuthProvider({ children }) {
     setUser(null);
     window.location.href = "/";
   }
+  
+  // refreshUser exposé pour mettre à jour l'UI après modif profil
   const hasPerm = (perm) => user?.grade_level === 99 || user?.is_admin || user?.grade_permissions?.[perm] === true;
 
   return (
@@ -140,9 +142,45 @@ function SidebarItem({ icon: Icon, label, to, active }) {
 }
 
 function Layout({ children }) {
-  const { user, logout, hasPerm } = useAuth()
+  const { user, logout, hasPerm, refreshUser } = useAuth()
   const location = useLocation()
   const [mobileMenu, setMobileMenu] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+  
+  // État pour le formulaire de profil
+  const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "", password: "", profile_picture: null })
+  const fileInputRef = useRef(null)
+
+  // Ouvrir la modale profil avec les données actuelles
+  const openProfile = () => {
+      setProfileForm({
+          first_name: user.first_name || "",
+          last_name: user.last_name || "",
+          phone: user.phone || "",
+          password: "",
+          profile_picture: null
+      })
+      setShowProfile(true)
+  }
+
+  // Sauvegarder le profil
+  const saveProfile = async (e) => {
+      e.preventDefault()
+      const formData = new FormData()
+      formData.append("first_name", profileForm.first_name)
+      formData.append("last_name", profileForm.last_name)
+      formData.append("phone", profileForm.phone)
+      if (profileForm.password) formData.append("password", profileForm.password)
+      if (profileForm.profile_picture instanceof File) formData.append("profile_picture", profileForm.profile_picture)
+      
+      const res = await apiFetch("/api/users/me", { method: "PUT", body: formData })
+      if(res.ok) {
+          await refreshUser() // Rafraîchir les données utilisateur globales
+          setShowProfile(false)
+      } else {
+          alert("Erreur lors de la mise à jour")
+      }
+  }
 
   const navs = [
     { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard" },
@@ -166,21 +204,24 @@ function Layout({ children }) {
             <SidebarItem key={n.to} {...n} active={location.pathname === n.to} />
           ))}
         </nav>
+        
+        {/* SECTION PROFIL UTILISATEUR EN BAS */}
         <div className="p-4 bg-slate-950 border-t border-slate-800">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white border-2 border-slate-700">
-              {user?.first_name?.[0]}
+          <button onClick={openProfile} className="flex items-center gap-3 mb-3 w-full text-left hover:bg-slate-900 p-2 rounded-lg transition-colors group">
+            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white border-2 border-slate-700 overflow-hidden">
+              {user?.profile_picture ? <img src={user.profile_picture} className="w-full h-full object-cover"/> : user?.first_name?.[0]}
             </div>
             <div className="overflow-hidden">
-              <p className="text-sm font-bold text-white truncate">{user?.grade_name}</p>
+              <p className="text-sm font-bold text-white truncate group-hover:text-blue-400 transition-colors">{user?.grade_name}</p>
               <p className="text-xs text-slate-500 truncate">{user?.last_name} {user?.first_name}</p>
             </div>
-          </div>
+          </button>
           <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-2 rounded-md bg-red-900/20 text-red-400 hover:bg-red-900/40 text-xs font-bold uppercase tracking-wider transition-all">
             <LogOut size={14} /> Déconnexion
           </button>
         </div>
       </aside>
+
       <main className="flex-1 lg:ml-64 flex flex-col min-h-screen">
         <header className="lg:hidden h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 sticky top-0 z-20">
           <div className="flex items-center gap-2">
@@ -208,6 +249,55 @@ function Layout({ children }) {
             {children}
         </div>
       </main>
+
+      {/* MODALE DE PROFIL */}
+      {showProfile && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+           <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl shadow-2xl border dark:border-slate-700 animate-in fade-in zoom-in duration-300">
+              <div className="flex justify-between items-center mb-6 border-b dark:border-slate-700 pb-4">
+                 <h2 className="text-xl font-black text-slate-900 dark:text-white">Mon Profil Officier</h2>
+                 <button onClick={() => setShowProfile(false)}><X className="text-slate-500 hover:text-white"/></button>
+              </div>
+              
+              <form onSubmit={saveProfile} className="space-y-4">
+                 <div className="flex justify-center mb-6">
+                    <div 
+                        className="w-24 h-24 rounded-full bg-slate-200 dark:bg-slate-700 relative group cursor-pointer overflow-hidden border-4 border-blue-600/30 hover:border-blue-600 transition-all"
+                        onClick={() => fileInputRef.current.click()}
+                    >
+                        {profileForm.profile_picture instanceof File ? (
+                            <img src={URL.createObjectURL(profileForm.profile_picture)} className="w-full h-full object-cover" />
+                        ) : user?.profile_picture ? (
+                            <img src={user.profile_picture} className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400"><User size={40}/></div>
+                        )}
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Camera className="text-white"/>
+                        </div>
+                    </div>
+                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => setProfileForm({...profileForm, profile_picture: e.target.files[0]})} />
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-3">
+                    <InputField label="Prénom" value={profileForm.first_name} onChange={e => setProfileForm({...profileForm, first_name: e.target.value})} />
+                    <InputField label="Nom" value={profileForm.last_name} onChange={e => setProfileForm({...profileForm, last_name: e.target.value})} />
+                 </div>
+                 <InputField label="Téléphone" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} />
+                 
+                 <div className="pt-2 border-t dark:border-slate-700">
+                    <p className="text-xs font-bold text-blue-500 uppercase mb-2">Sécurité</p>
+                    <InputField label="Nouveau mot de passe" type="password" placeholder="Laisser vide si inchangé" value={profileForm.password} onChange={e => setProfileForm({...profileForm, password: e.target.value})} />
+                 </div>
+
+                 <div className="flex gap-3 pt-4">
+                    <button type="button" onClick={() => setShowProfile(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                    <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Enregistrer</button>
+                 </div>
+              </form>
+           </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -218,11 +308,11 @@ function Dashboard() {
   const [myStats, setMyStats] = useState(null)
 
   useEffect(() => {
-    // Stats Admin si permission
+    // Stats Admin si permission (Total effectif, etc.)
     if (hasPerm('view_logs')) {
         apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
     }
-    // Stats Perso (TOUJOURS)
+    // Stats Perso (Toujours chargé : Mes dossiers, etc.)
     apiFetch("/api/users/me/stats").then(r => r.ok ? r.json() : null).then(setMyStats).catch(() => {})
   }, [])
 
@@ -236,25 +326,25 @@ function Dashboard() {
       {/* Stats Personnelles */}
       <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Performance</h2>
       <div className="grid md:grid-cols-3 gap-6 mb-8">
-        <StatCard label="Mes Dossiers" value={myStats?.my_appointments || "0"} icon={ClipboardList} color="blue" />
-        <StatCard label="Civils Contrôlés" value={myStats?.my_patients || "0"} icon={Users} color="green" />
-        <StatCard label="Activité" value="En Service" icon={CheckCircle} color="yellow" />
+        <StatCard label="Dossiers Traités" value={myStats?.my_appointments || "0"} icon={ClipboardList} color="blue" />
+        <StatCard label="Civils Enregistrés" value={myStats?.my_patients || "0"} icon={Users} color="green" />
+        <StatCard label="Statut" value="En Service" icon={CheckCircle} color="yellow" />
       </div>
 
-      {/* Stats Globales (Si Admin) */}
+      {/* Stats Globales (Si Admin/Haut Gradé) */}
       {stats && (
         <>
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Vue Globale</h2>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Vue Globale Commandement</h2>
             <div className="grid md:grid-cols-4 gap-6 mb-8">
-                <StatCard label="Effectif" value={stats.users?.total || 0} icon={Shield} color="blue" />
-                <StatCard label="Plaintes" value={stats.appointments?.pending || 0} icon={AlertTriangle} color="yellow" />
-                <StatCard label="Civils" value={stats.patients?.total || 0} icon={Users} color="blue" />
-                <StatCard label="Rapports" value={stats.reports?.total || 0} icon={FileText} color="green" />
+                <StatCard label="Effectif Total" value={stats.users?.total || 0} icon={Shield} color="blue" />
+                <StatCard label="Plaintes En Attente" value={stats.appointments?.pending || 0} icon={AlertTriangle} color="red" />
+                <StatCard label="Citoyens Fichés" value={stats.patients?.total || 0} icon={Users} color="blue" />
+                <StatCard label="Rapports d'Intervention" value={stats.reports?.total || 0} icon={FileText} color="green" />
             </div>
         </>
       )}
 
-      {/* Layout Grid Complexe comme EMS */}
+      {/* Layout Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
              <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Accès Rapide</h2>
@@ -263,15 +353,15 @@ function Dashboard() {
                     <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><ClipboardList size={24}/></div>
                     <div>
                         <h3 className="font-bold text-slate-800 dark:text-white">Gérer Plaintes</h3>
-                        <p className="text-xs text-slate-500">Traiter les demandes</p>
+                        <p className="text-xs text-slate-500">Traiter les dépôts de plainte</p>
                     </div>
                     <ChevronRight className="ml-auto text-slate-400"/>
                 </Link>
                 <Link to="/roster" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-emerald-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
                     <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Users size={24}/></div>
                     <div>
-                        <h3 className="font-bold text-slate-800 dark:text-white">Effectif</h3>
-                        <p className="text-xs text-slate-500">Voir les officiers</p>
+                        <h3 className="font-bold text-slate-800 dark:text-white">Effectif LSPD</h3>
+                        <p className="text-xs text-slate-500">Voir la liste des officiers</p>
                     </div>
                     <ChevronRight className="ml-auto text-slate-400"/>
                 </Link>
@@ -279,14 +369,14 @@ function Dashboard() {
           </div>
 
           <div>
-             <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Dernières Activités</h2>
+             <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Activité Récente</h2>
              <div className="space-y-3">
                 {myStats?.recent_activity?.length > 0 ? (
                     myStats.recent_activity.map(a => (
                         <div key={a.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-sm">
-                            <div className="font-bold text-slate-800 dark:text-white">{a.title}</div>
-                            <div className="text-slate-500 text-xs mb-1">{a.patient_name}</div>
-                            <div className="text-xs text-slate-400 text-right">{new Date(a.date).toLocaleDateString()}</div>
+                            <div className="font-bold text-slate-800 dark:text-white uppercase text-xs tracking-wider mb-1 text-blue-500">{a.title}</div>
+                            <div className="text-slate-300 font-medium mb-1">{a.patient_name}</div>
+                            <div className="text-xs text-slate-500 text-right">{new Date(a.date).toLocaleDateString()}</div>
                         </div>
                     ))
                 ) : (
@@ -311,32 +401,38 @@ function Plaintes() {
   return (
     <Layout>
       <div className="flex justify-between items-center mb-8">
-         <h1 className="text-3xl font-black text-slate-900 dark:text-white">PLAINTES</h1>
-         <button onClick={load} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg"><Activity size={20}/></button>
+         <div>
+            <h1 className="text-3xl font-black text-slate-900 dark:text-white">PLAINTES & REQUÊTES</h1>
+            <p className="text-slate-500 text-sm">Gestion des dossiers citoyens</p>
+         </div>
+         <button onClick={load} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg hover:opacity-80"><Activity size={20}/></button>
       </div>
       <div className="grid gap-4">
         {complaints.map(c => (
           <div key={c.id} className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row justify-between gap-4">
              <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
-                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'assigned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{c.status}</span>
+                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'assigned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {c.status === 'pending' ? 'En Attente' : c.status === 'assigned' ? 'En Cours' : 'Clôturé'}
+                   </span>
                    <span className="text-slate-400 text-xs font-mono">{new Date(c.created_at).toLocaleDateString()}</span>
                 </div>
                 <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">{c.appointment_type} - {c.patient_name}</h3>
-                <p className="text-slate-500 text-sm mb-3">{c.description}</p>
+                <p className="text-slate-500 text-sm mb-3 italic">"{c.description}"</p>
                 <div className="flex gap-4 text-xs text-slate-400 font-mono">
                    <span className="flex items-center gap-1"><Phone size={12}/> {c.patient_phone || "N/A"}</span>
                 </div>
              </div>
              {c.status !== 'completed' && hasPerm('manage_appointments') && (
-                <div className="flex md:flex-col gap-2 pt-4 md:pt-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700">
-                   {c.status === 'pending' && <button onClick={() => handleStatus(c.id, 'assign')} className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700">Prendre</button>}
+                <div className="flex md:flex-col gap-2 pt-4 md:pt-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 justify-center">
+                   {c.status === 'pending' && <button onClick={() => handleStatus(c.id, 'assign')} className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700">Prendre en charge</button>}
                    {c.status === 'assigned' && <button onClick={() => handleStatus(c.id, 'complete')} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700">Clôturer</button>}
                    <button onClick={() => handleStatus(c.id, 'cancel')} className="px-4 py-2 bg-red-600/10 text-red-500 text-sm font-bold rounded-lg hover:bg-red-600/20">Refuser</button>
                 </div>
              )}
           </div>
         ))}
+        {complaints.length === 0 && <div className="text-center p-12 text-slate-400 font-medium bg-slate-800/50 rounded-xl border border-dashed border-slate-700">Aucune plainte à traiter</div>}
       </div>
     </Layout>
   )
@@ -345,6 +441,7 @@ function Plaintes() {
 function Roster() {
   const [members, setMembers] = useState([])
   useEffect(() => { apiFetch("/api/users/roster").then(r => r.json()).then(d => setMembers(Array.isArray(d) ? d : [])) }, [])
+  
   const order = ["High Command", "Command Staff", "Supervisors", "Officers", "Système"];
   const grouped = members.reduce((acc, m) => {
       const cat = m.grade_category || "Autres";
@@ -352,17 +449,21 @@ function Roster() {
       acc[cat].push(m);
       return acc;
   }, {});
+
   return (
     <Layout>
-      <div className="mb-8"><h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1></div>
+      <div className="mb-8">
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1>
+          <p className="text-slate-500 font-medium">Liste des officiers et état-major</p>
+      </div>
       <div className="space-y-8">
          {order.map(cat => grouped[cat] && (
             <div key={cat}>
                <h3 className="text-sm font-black uppercase tracking-widest text-blue-600 mb-4 border-b border-blue-900/30 pb-2">{cat}</h3>
                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {grouped[cat].sort((a,b) => b.grade_level - a.grade_level).map(m => (
-                     <div key={m.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl flex items-center gap-4 border border-slate-200 dark:border-slate-700 shadow-sm">
-                        <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 overflow-hidden">
+                     <div key={m.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl flex items-center gap-4 border border-slate-200 dark:border-slate-700 shadow-sm border-l-4" style={{borderLeftColor: m.grade_color}}>
+                        <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 overflow-hidden ring-2 ring-slate-600">
                            {m.profile_picture ? <img src={m.profile_picture} className="w-full h-full object-cover"/> : (m.first_name?.[0] || "?")}
                         </div>
                         <div>
@@ -388,7 +489,7 @@ function Admin() {
   const [logs, setLogs] = useState([])
   const [performance, setPerformance] = useState([])
   const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "" })
+  const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" })
 
   const load = () => { 
       if(activeTab === 'users') apiFetch("/api/admin/users").then(r => r.json()).then(setUsers);
@@ -483,7 +584,7 @@ function Admin() {
 
       {showModal && (
          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl">
                <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Nouveau dossier personnel</h2>
                <form onSubmit={submitUser} className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
@@ -493,10 +594,19 @@ function Admin() {
                   <InputField label="Identifiant" value={form.username} onChange={e => setForm({...form, username: e.target.value})} required />
                   <InputField label="Mot de passe" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
                   <InputField label="Matricule" value={form.badge_number} onChange={e => setForm({...form, badge_number: e.target.value})} required />
-                  <SelectField label="Grade" value={form.grade_id} onChange={e => setForm({...form, grade_id: e.target.value})} required>
+                  <SelectField label="Grade (Hiérarchie)" value={form.grade_id} onChange={e => setForm({...form, grade_id: e.target.value})} required>
                      <option value="">Sélectionner un grade</option>
-                     {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                     {grades.map(g => <option key={g.id} value={g.id}>{g.name} (Niveau {g.level})</option>)}
                   </SelectField>
+                  
+                  <div className="pt-2 border-t dark:border-slate-700">
+                      <p className="text-xs font-bold text-blue-500 uppercase mb-2">Options Avancées (RP)</p>
+                      <SelectField label="Grade Visible (Faux grade pour couverture)" value={form.visible_grade_id} onChange={e => setForm({...form, visible_grade_id: e.target.value})}>
+                         <option value="">-- Aucun (Utiliser le vrai grade) --</option>
+                         {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      </SelectField>
+                  </div>
+
                   <div className="flex gap-3 pt-4">
                      <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
                      <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg">Créer</button>
