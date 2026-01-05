@@ -130,6 +130,15 @@ const StatCard = ({ label, value, icon: Icon, color = "blue" }) => {
     )
 }
 
+function SidebarItem({ icon: Icon, label, to, active }) {
+  return (
+    <Link to={to} className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
+      <Icon size={18} />
+      <span>{label}</span>
+    </Link>
+  )
+}
+
 function Layout({ children }) {
   const { user, logout, hasPerm } = useAuth()
   const location = useLocation()
@@ -154,9 +163,7 @@ function Layout({ children }) {
         </div>
         <nav className="flex-1 p-4 space-y-1">
           {navs.map(n => (
-            <Link key={n.to} to={n.to} className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${location.pathname === n.to ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
-              <n.icon size={18} /> {n.label}
-            </Link>
+            <SidebarItem key={n.to} {...n} active={location.pathname === n.to} />
           ))}
         </nav>
         <div className="p-4 bg-slate-950 border-t border-slate-800">
