@@ -4,7 +4,7 @@ const pool = require("../config/database");
 const { isAuthenticated, hasPermission } = require("../middleware/auth");
 const logAction = require("../utils/logger");
 
-// 1. Dépôt de plainte (Public) - AVEC WEBHOOK RESTAURÉ
+// 1. Dépôt de plainte (Public)
 router.post("/public", async (req, res) => {
   try {
     const { patient_name, patient_phone, patient_discord, appointment_type, description } = req.body;
@@ -16,7 +16,7 @@ router.post("/public", async (req, res) => {
 
     // --- NOTIFICATION DISCORD LSPD ---
     try {
-        const webhookUrl = process.env.DISCORD_WEBHOOK_URL || ""; // À configurer dans le .env
+        const webhookUrl = process.env.DISCORD_WEBHOOK_URL || ""; 
         
         if (webhookUrl) {
             await fetch(webhookUrl, {
@@ -39,7 +39,6 @@ router.post("/public", async (req, res) => {
             });
         }
     } catch (e) { console.error("Webhook Error:", e); }
-    // ---------------------------------
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -64,7 +63,7 @@ router.get("/", isAuthenticated, async (req, res) => {
   }
 });
 
-// 3. Actions sur les plaintes
+// 3. Actions sur les plaintes (Status update)
 router.post("/:id/:action", isAuthenticated, hasPermission('manage_appointments'), async (req, res) => {
     const { action } = req.params;
     const id = req.params.id;
@@ -83,6 +82,20 @@ router.post("/:id/:action", isAuthenticated, hasPermission('manage_appointments'
 
     await logAction(req.user.id, "UPDATE_COMPLAINT", `${logMsg} ID ${id}`, id);
     res.json({ success: true });
+});
+
+// 4. SUPPRIMER DÉFINITIVEMENT UNE PLAINTE
+router.delete("/:id", isAuthenticated, hasPermission('manage_appointments'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query("DELETE FROM appointments WHERE id = $1", [id]);
+        
+        await logAction(req.user.id, "DELETE_COMPLAINT", `Suppression définitive plainte ID ${id}`, id);
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Erreur serveur lors de la suppression" });
+    }
 });
 
 module.exports = router;
