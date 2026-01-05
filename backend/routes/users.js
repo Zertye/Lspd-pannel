@@ -5,13 +5,15 @@ const bcrypt = require("bcrypt");
 const { isAuthenticated, hasPermission } = require("../middleware/auth");
 const upload = require("../middleware/upload"); 
 
-// Liste Admin
+// Liste Admin (Vue complète avec vrais grades)
 router.get("/", isAuthenticated, hasPermission('manage_users'), async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT u.id, u.username, u.first_name, u.last_name, u.badge_number, u.grade_id, u.is_active,
+      SELECT u.id, u.username, u.first_name, u.last_name, u.badge_number, u.grade_id, u.is_active, u.phone,
       g.name as grade_name, g.category as grade_category, g.level as grade_level, g.color as grade_color
-      FROM users u LEFT JOIN grades g ON u.grade_id = g.id ORDER BY g.level DESC, u.last_name
+      FROM users u 
+      LEFT JOIN grades g ON u.grade_id = g.id 
+      ORDER BY g.level DESC, u.last_name ASC
     `);
     res.json(result.rows);
   } catch (err) {
@@ -19,7 +21,7 @@ router.get("/", isAuthenticated, hasPermission('manage_users'), async (req, res)
   }
 });
 
-// Effectifs (Vue publique interne)
+// Effectifs (Vue publique interne - Respect strict hiérarchie & Grades visibles)
 router.get("/roster", isAuthenticated, hasPermission('view_roster'), async (req, res) => {
   try {
     const result = await pool.query(`
@@ -41,18 +43,18 @@ router.get("/roster", isAuthenticated, hasPermission('view_roster'), async (req,
   }
 });
 
-// Stats Personnelles (Dashboard - CALCUL RÉEL)
+// Stats Personnelles (Dashboard)
 router.get("/me/stats", isAuthenticated, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // On récupère les vraies stats : Plaintes traitées, Dossiers créés (patients table utilisé comme casier civil)
+    // Stats réelles : Plaintes traitées, Dossiers créés
     const [appointments, createdFiles] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM appointments WHERE assigned_medic_id = $1 AND status = 'completed'", [userId]),
       pool.query("SELECT COUNT(*) FROM patients WHERE created_by = $1", [userId])
     ]);
 
-    // On récupère l'activité récente (Dernières plaintes assignées)
+    // Activité récente
     const recentActivity = await pool.query(`
         SELECT a.id, a.appointment_type as title, a.description, a.created_at as date, a.patient_name
         FROM appointments a 
@@ -62,10 +64,10 @@ router.get("/me/stats", isAuthenticated, async (req, res) => {
     `, [userId]);
 
     res.json({
-      my_reports: 0, // Placeholder pour futurs rapports d'arrestation
-      my_patients: parseInt(createdFiles.rows[0]?.count || 0), // Civils enregistrés
-      my_appointments: parseInt(appointments.rows[0]?.count || 0), // Plaintes traitées
-      recent_activity: recentActivity.rows // Historique réel
+      my_reports: 0, // Placeholder
+      my_patients: parseInt(createdFiles.rows[0]?.count || 0),
+      my_appointments: parseInt(appointments.rows[0]?.count || 0),
+      recent_activity: recentActivity.rows
     });
   } catch (err) {
     console.error("Erreur Stats Perso:", err);
@@ -73,14 +75,21 @@ router.get("/me/stats", isAuthenticated, async (req, res) => {
   }
 });
 
-// Profil personnel
+// Modification Profil Complète (Photo, MDP, Tel, Nom)
 router.put("/me", isAuthenticated, upload.single('profile_picture'), async (req, res) => {
   try {
     const { first_name, last_name, phone, password } = req.body;
+    
+    // Validation basique
+    if (!first_name || !last_name) {
+        return res.status(400).json({ error: "Nom et prénom sont requis" });
+    }
+
     let fields = ["first_name=$1", "last_name=$2", "phone=$3", "updated_at=CURRENT_TIMESTAMP"];
     let params = [first_name, last_name, phone];
     let paramIndex = 4;
 
+    // Gestion du mot de passe (seulement si fourni)
     if (password && password.trim() !== "") {
         const hashedPassword = await bcrypt.hash(password, 10);
         fields.push(`password=$${paramIndex}`);
@@ -88,6 +97,7 @@ router.put("/me", isAuthenticated, upload.single('profile_picture'), async (req,
         paramIndex++;
     }
 
+    // Gestion de la photo de profil
     if (req.file) {
         fields.push(`profile_picture=$${paramIndex}`);
         const b64 = req.file.buffer.toString('base64');
@@ -100,7 +110,7 @@ router.put("/me", isAuthenticated, upload.single('profile_picture'), async (req,
     params.push(req.user.id);
     await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id=$${paramIndex}`, params);
     
-    // Refresh user data pour la session
+    // Renvoie les données utilisateur mises à jour pour rafraîchir le frontend
     const updated = await pool.query(`
       SELECT 
         u.id, u.username, u.first_name, u.last_name, u.badge_number, u.is_admin, u.profile_picture, u.phone,
@@ -115,7 +125,10 @@ router.put("/me", isAuthenticated, upload.single('profile_picture'), async (req,
     `, [req.user.id]);
 
     res.json({ success: true, user: updated.rows[0] });
-  } catch (err) { res.status(500).json({ error: "Erreur serveur" }); }
+  } catch (err) { 
+      console.error(err);
+      res.status(500).json({ error: "Erreur serveur lors de la mise à jour du profil" }); 
+  }
 });
 
 module.exports = router;
