@@ -56,14 +56,14 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Tables héritées (conservées pour compatibilité legacy)
+      -- Tables héritées (conservées pour compatibilité legacy architecture)
       CREATE TABLE IF NOT EXISTS specialties (id SERIAL PRIMARY KEY, name VARCHAR(100), icon VARCHAR(10));
       CREATE TABLE IF NOT EXISTS user_specialties (user_id INTEGER, specialty_id INTEGER, PRIMARY KEY (user_id, specialty_id));
       CREATE TABLE IF NOT EXISTS patients (id SERIAL PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), created_by INTEGER, photo TEXT, insurance_number VARCHAR(50), chronic_conditions TEXT, phone VARCHAR(20), gender VARCHAR(20), date_of_birth DATE);
       CREATE TABLE IF NOT EXISTS medical_reports (id SERIAL PRIMARY KEY, patient_id INTEGER, medic_id INTEGER, diagnosis TEXT, incident_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     `);
 
-    // 2. MIGRATION DES COLONNES
+    // 2. MIGRATION DES COLONNES (Pour s'assurer que la structure est à jour)
     const addColumnIfNotExists = async (table, column, type) => {
       const res = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_name='${table}' AND column_name='${column}'`);
       if (res.rows.length === 0) {
@@ -84,7 +84,7 @@ const initDatabase = async () => {
     await addColumnIfNotExists('users', 'is_active', 'BOOLEAN DEFAULT TRUE');
     await addColumnIfNotExists('users', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
-    // 3. INITIALISATION DES GRADES LSPD (STRICT)
+    // 3. INITIALISATION DES GRADES LSPD (Si la table est vide)
     const gradesExist = await client.query("SELECT COUNT(*) FROM grades");
     if (parseInt(gradesExist.rows[0].count) === 0) {
       console.log("🔹 Initialisation des grades LSPD...");
@@ -118,21 +118,7 @@ const initDatabase = async () => {
       `);
     }
 
-    // --- NETTOYAGE : SUPPRESSION DE L'ANCIEN COMPTE ADMIN S'IL EXISTE ---
-    const oldAdmin = await client.query("SELECT id FROM users WHERE username = 'admin'");
-    if (oldAdmin.rows.length > 0) {
-      console.log("⚠️ Suppression de l'ancien compte 'admin' détecté...");
-      const adminId = oldAdmin.rows[0].id;
-      
-      // Suppression des logs liés à cet admin pour éviter l'erreur de clé étrangère
-      await client.query("DELETE FROM logs WHERE user_id = $1", [adminId]);
-      
-      // Suppression de l'utilisateur
-      await client.query("DELETE FROM users WHERE id = $1", [adminId]);
-      console.log("✅ Ancien compte 'admin' et ses logs supprimés.");
-    }
-
-    console.log("✅ Base de données LSPD prête !");
+    console.log("✅ Base de données LSPD prête et à jour !");
 
   } catch (e) {
     console.error("❌ ERREUR INIT DB:", e);
