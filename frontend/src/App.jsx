@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link, useNavigate } from "react-router-dom"
-import { createContext, useContext, useState, useEffect, useRef } from "react"
+import { createContext, useContext, useState, useEffect } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
-  CheckCircle, Send, Phone, User, Camera, Sun, Moon, Lock, AlertTriangle, FileText, Activity
+  CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity
 } from "lucide-react"
 
 // --- Theme Context ---
@@ -12,16 +12,14 @@ export function useTheme() { return useContext(ThemeContext) }
 function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
     if (typeof window !== 'undefined' && localStorage.getItem('theme')) return localStorage.getItem('theme')
-    return 'dark' // Default LSPD Dark Mode
+    return 'dark'
   })
-
   useEffect(() => {
     const root = window.document.documentElement
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
     localStorage.setItem('theme', theme)
   }, [theme])
-
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
   return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>
 }
@@ -67,7 +65,6 @@ function AuthProvider({ children }) {
     } catch (e) { setUser(null); }
     setLoading(false);
   }
-
   useEffect(() => { fetchUser() }, [])
 
   const login = async (username, password) => {
@@ -86,13 +83,11 @@ function AuthProvider({ children }) {
       return { success: false, error: data.error };
     } catch (e) { return { success: false, error: "Erreur connexion" }; }
   }
-
   const logout = () => {
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
     window.location.href = "/";
   }
-
   const hasPerm = (perm) => user?.grade_level === 99 || user?.is_admin || user?.grade_permissions?.[perm] === true;
 
   return (
@@ -103,27 +98,18 @@ function AuthProvider({ children }) {
 }
 
 // --- UI Components ---
-const Logo = ({ size = 40 }) => (
-  // Placeholder logo LSPD si pas d'image
-  <div className="flex items-center justify-center font-black text-slate-800 dark:text-white" style={{ fontSize: size/2.5 }}>
-    <Shield size={size} className="text-blue-700 dark:text-blue-500" />
-  </div>
-)
-
 const InputField = ({ label, ...props }) => (
   <div className="mb-3">
     {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
     <input className="w-full px-3 py-2.5 text-sm rounded-md bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 focus:border-blue-500 outline-none transition-all text-slate-800 dark:text-white" {...props} />
   </div>
 )
-
 const SelectField = ({ label, children, ...props }) => (
   <div className="mb-3">
     {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
     <select className="w-full px-3 py-2.5 text-sm rounded-md bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 focus:border-blue-500 outline-none transition-all text-slate-800 dark:text-white appearance-none cursor-pointer" {...props}>{children}</select>
   </div>
 )
-
 const TextArea = ({ label, ...props }) => (
   <div className="mb-3">
     {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
@@ -135,19 +121,16 @@ function Layout({ children }) {
   const { user, logout, hasPerm } = useAuth()
   const location = useLocation()
   const [mobileMenu, setMobileMenu] = useState(false)
-  const [showProfile, setShowProfile] = useState(false)
 
-  // Navigation stricte : Dashboard, Effectif, Admin
   const navs = [
     { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard" },
-    { icon: ClipboardList, label: "Plaintes", to: "/plaintes" }, // Ancien Appointments
+    { icon: ClipboardList, label: "Plaintes", to: "/plaintes" },
     { icon: Users, label: "Effectif LSPD", to: "/roster" },
   ]
   if (hasPerm('manage_users')) navs.push({ icon: ShieldAlert, label: "Administration", to: "/admin" })
 
   return (
     <div className="min-h-screen flex bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans">
-      {/* Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 bg-slate-900 border-r border-slate-800 fixed h-full z-30">
         <div className="p-6 flex items-center gap-3 border-b border-slate-800">
           <Shield className="text-blue-600" size={32} />
@@ -178,8 +161,6 @@ function Layout({ children }) {
           </button>
         </div>
       </aside>
-
-      {/* Main Content */}
       <main className="flex-1 lg:ml-64 flex flex-col min-h-screen">
         <header className="lg:hidden h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 sticky top-0 z-20">
           <div className="flex items-center gap-2">
@@ -188,7 +169,6 @@ function Layout({ children }) {
           </div>
           <button onClick={() => setMobileMenu(!mobileMenu)} className="text-white"><Menu/></button>
         </header>
-
         {mobileMenu && (
             <div className="fixed inset-0 bg-slate-900 z-50 p-4 lg:hidden">
                 <button onClick={() => setMobileMenu(false)} className="absolute top-4 right-4 text-white"><X/></button>
@@ -204,7 +184,6 @@ function Layout({ children }) {
                 </nav>
             </div>
         )}
-
         <div className="p-6 lg:p-10 max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
             {children}
         </div>
@@ -213,25 +192,18 @@ function Layout({ children }) {
   )
 }
 
-// --- Pages ---
-
 function Dashboard() {
   const { user } = useAuth()
   const [stats, setStats] = useState(null)
-
   useEffect(() => {
-    // On utilise les stats admin car c'est le seul endpoint générique
-    // Dans un vrai LSPD on filtrerait différemment mais on garde l'architecture
     apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
   }, [])
-
   return (
     <Layout>
       <div className="mb-8">
         <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">TABLEAU DE BORD</h1>
         <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
       </div>
-
       <div className="grid md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-600 shadow-sm">
            <div className="flex justify-between items-start">
@@ -261,69 +233,42 @@ function Dashboard() {
            </div>
         </div>
       </div>
-
-      <div className="bg-slate-900 rounded-xl p-8 text-center border border-slate-800">
-         <Shield size={48} className="mx-auto text-slate-700 mb-4" />
-         <h2 className="text-white font-bold text-xl mb-2">Message du Chef</h2>
-         <p className="text-slate-400 max-w-2xl mx-auto">
-            "Protéger et Servir". Assurez-vous que vos rapports sont complets. 
-            Les plaintes doivent être traitées sous 24h. Soyez prudents dehors.
-         </p>
-      </div>
     </Layout>
   )
 }
 
 function Plaintes() {
-  // Adaptation de la page "Appointments" en "Plaintes"
   const { user, hasPerm } = useAuth()
   const [complaints, setComplaints] = useState([])
-
-  const load = () => {
-    apiFetch("/api/appointments").then(r => r.json()).then(d => setComplaints(Array.isArray(d) ? d : [])).catch(() => setComplaints([]))
-  }
+  const load = () => apiFetch("/api/appointments").then(r => r.json()).then(d => setComplaints(Array.isArray(d) ? d : [])).catch(() => setComplaints([]))
   useEffect(() => { load() }, [])
-
   const handleStatus = async (id, action) => {
-    let url = `/api/appointments/${id}/${action}`
-    if (action === "complete") {
-        await apiFetch(url, { method: "POST", body: JSON.stringify({ completion_notes: "Plainte traitée" }) })
-    } else {
-        await apiFetch(url, { method: "POST" })
-    }
+    await apiFetch(`/api/appointments/${id}/${action}`, { method: "POST" })
     load()
   }
-
   return (
     <Layout>
       <div className="flex justify-between items-center mb-8">
-         <div>
-            <h1 className="text-3xl font-black text-slate-900 dark:text-white">PLAINTES</h1>
-            <p className="text-slate-500 font-medium">Gestion des dépôts de plainte citoyens</p>
-         </div>
-         <button onClick={load} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg hover:opacity-80 transition-opacity"><Activity size={20}/></button>
+         <h1 className="text-3xl font-black text-slate-900 dark:text-white">PLAINTES</h1>
+         <button onClick={load} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg"><Activity size={20}/></button>
       </div>
-
       <div className="grid gap-4">
         {complaints.map(c => (
           <div key={c.id} className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row justify-between gap-4">
              <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
-                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'assigned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {c.status === 'pending' ? 'En Attente' : c.status === 'assigned' ? 'En Cours' : 'Traitée'}
-                   </span>
+                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'assigned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{c.status}</span>
                    <span className="text-slate-400 text-xs font-mono">{new Date(c.created_at).toLocaleDateString()}</span>
                 </div>
                 <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">{c.appointment_type} - {c.patient_name}</h3>
-                <p className="text-slate-500 text-sm mb-3 line-clamp-2">{c.description}</p>
+                <p className="text-slate-500 text-sm mb-3">{c.description}</p>
                 <div className="flex gap-4 text-xs text-slate-400 font-mono">
                    <span className="flex items-center gap-1"><Phone size={12}/> {c.patient_phone || "N/A"}</span>
                    <span className="flex items-center gap-1"><Users size={12}/> {c.patient_discord || "N/A"}</span>
                 </div>
              </div>
-             
              {c.status !== 'completed' && hasPerm('manage_appointments') && (
-                <div className="flex md:flex-col gap-2 justify-center border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 pt-4 md:pt-0 md:pl-4">
+                <div className="flex md:flex-col gap-2 pt-4 md:pt-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700">
                    {c.status === 'pending' && <button onClick={() => handleStatus(c.id, 'assign')} className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700">Prendre</button>}
                    {c.status === 'assigned' && <button onClick={() => handleStatus(c.id, 'complete')} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700">Clôturer</button>}
                    <button onClick={() => handleStatus(c.id, 'cancel')} className="px-4 py-2 bg-red-600/10 text-red-500 text-sm font-bold rounded-lg hover:bg-red-600/20">Refuser</button>
@@ -331,7 +276,7 @@ function Plaintes() {
              )}
           </div>
         ))}
-        {complaints.length === 0 && <div className="text-center p-12 text-slate-400 font-medium bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">Aucune plainte à traiter</div>}
+        {complaints.length === 0 && <div className="text-center p-12 text-slate-400 font-medium">Aucune plainte</div>}
       </div>
     </Layout>
   )
@@ -339,11 +284,7 @@ function Plaintes() {
 
 function Roster() {
   const [members, setMembers] = useState([])
-  useEffect(() => { 
-    apiFetch("/api/users/roster").then(r => r.json()).then(d => setMembers(Array.isArray(d) ? d : []))
-  }, [])
-
-  // Tri par hiérarchie LSPD
+  useEffect(() => { apiFetch("/api/users/roster").then(r => r.json()).then(d => setMembers(Array.isArray(d) ? d : [])) }, [])
   const order = ["High Command", "Command Staff", "Supervisors", "Officers", "Système"];
   const grouped = members.reduce((acc, m) => {
       const cat = m.grade_category || "Autres";
@@ -351,14 +292,11 @@ function Roster() {
       acc[cat].push(m);
       return acc;
   }, {});
-
   return (
     <Layout>
       <div className="mb-8">
          <h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1>
-         <p className="text-slate-500 font-medium">Liste des officiers et état-major</p>
       </div>
-
       <div className="space-y-8">
          {order.map(cat => grouped[cat] && (
             <div key={cat}>
@@ -385,49 +323,30 @@ function Roster() {
 }
 
 function Admin() {
-  // Version simplifiée de l'admin pour gérer les utilisateurs/grades
   const { user } = useAuth()
   const [users, setUsers] = useState([])
   const [showModal, setShowModal] = useState(false)
   const [grades, setGrades] = useState([])
   const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "" })
-
-  const load = () => {
-    apiFetch("/api/admin/users").then(r => r.json()).then(setUsers)
-    apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades)
-  }
+  const load = () => { apiFetch("/api/admin/users").then(r => r.json()).then(setUsers); apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades) }
   useEffect(() => { load() }, [])
-
   const submitUser = async (e) => {
     e.preventDefault()
     await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
     setShowModal(false)
     load()
   }
-
-  const deleteUser = async (id) => {
-    if(window.confirm("Renvoyer cet officier ?")) {
-        await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" })
-        load()
-    }
-  }
-
+  const deleteUser = async (id) => { if(window.confirm("Renvoyer cet officier ?")) { await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" }); load() } }
   return (
     <Layout>
       <div className="flex justify-between items-center mb-8">
          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ADMINISTRATION</h1>
          <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Ajouter Officier</button>
       </div>
-
       <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
          <table className="w-full text-sm text-left">
             <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500">
-               <tr>
-                  <th className="px-6 py-4">Officier</th>
-                  <th className="px-6 py-4">Grade</th>
-                  <th className="px-6 py-4">Matricule</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
-               </tr>
+               <tr><th className="px-6 py-4">Officier</th><th className="px-6 py-4">Grade</th><th className="px-6 py-4">Matricule</th><th className="px-6 py-4 text-right">Actions</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                {users.map(u => (
@@ -435,15 +354,12 @@ function Admin() {
                      <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{u.first_name} {u.last_name}</td>
                      <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
                      <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
-                     <td className="px-6 py-4 text-right">
-                        {u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 hover:text-red-700 font-bold">Exclure</button>}
-                     </td>
+                     <td className="px-6 py-4 text-right">{u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 hover:text-red-700 font-bold">Exclure</button>}</td>
                   </tr>
                ))}
             </tbody>
          </table>
       </div>
-
       {showModal && (
          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl">
@@ -473,17 +389,14 @@ function Admin() {
 }
 
 function PublicComplaint() {
-  // Page publique "Porter plainte" (remplace PublicBooking)
   const [form, setForm] = useState({ patient_name: "", patient_phone: "", patient_discord: "", appointment_type: "Vol", description: "" })
   const [done, setDone] = useState(false)
   const navigate = useNavigate()
-
   const submit = async (e) => {
     e.preventDefault()
     await fetch("/api/appointments/public", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(form) })
     setDone(true)
   }
-
   if(done) return (
      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
         <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-white mb-6"><CheckCircle size={40}/></div>
@@ -492,7 +405,6 @@ function PublicComplaint() {
         <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700">Retour accueil</button>
      </div>
   )
-
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex items-center justify-center p-4">
        <div className="w-full max-w-lg bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl">
@@ -517,7 +429,6 @@ function PublicComplaint() {
                 <option value="Autre">Autre motif</option>
              </SelectField>
              <TextArea label="Description des faits" placeholder="Décrivez précisément ce qui s'est passé..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} required />
-             
              <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => navigate('/')} className="flex-1 py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg">Annuler</button>
                 <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><Send size={18}/> Envoyer</button>
@@ -532,8 +443,6 @@ function Login() {
   const { login } = useAuth()
   const [form, setForm] = useState({ username: "", password: "" })
   const [err, setErr] = useState("")
-  const navigate = useNavigate()
-
   const submit = async (e) => {
     e.preventDefault()
     setErr("")
@@ -541,7 +450,6 @@ function Login() {
     if(res.success) window.location.href = "/dashboard"
     else setErr(res.error || "Erreur d'identification")
   }
-
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl">
@@ -565,10 +473,8 @@ function Login() {
 }
 
 function Landing() {
-   // Page d'accueil simple avec choix Connexion ou Plainte
    return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center relative overflow-hidden">
-         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
          <div className="relative z-10 text-center space-y-8 p-6">
             <Shield size={120} className="text-blue-700 mx-auto drop-shadow-2xl"/>
             <div>
@@ -576,12 +482,8 @@ function Landing() {
                <p className="text-blue-400 text-xl font-bold uppercase tracking-widest">Los Santos Police Department</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 pt-8">
-               <Link to="/login" className="px-8 py-4 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2">
-                  <Lock size={20}/> ACCÈS OFFICIER
-               </Link>
-               <Link to="/plainte" className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2">
-                  <FileText size={20}/> PORTER PLAINTE
-               </Link>
+               <Link to="/login" className="px-8 py-4 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2"><Lock size={20}/> ACCÈS OFFICIER</Link>
+               <Link to="/plainte" className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2"><FileText size={20}/> PORTER PLAINTE</Link>
             </div>
          </div>
          <div className="absolute bottom-6 text-slate-600 text-xs font-mono">SECURE CONNECTION // AUTHORIZED PERSONNEL ONLY</div>
