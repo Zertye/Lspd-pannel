@@ -118,8 +118,13 @@ const initDatabase = async () => {
       `);
     }
 
-    // SUPPRESSION DE LA CRÉATION AUTOMATIQUE DU COMPTE ADMIN
-    // L'ancien bloc de code pour créer 'admin'/'12345' a été supprimé ici.
+    // --- NETTOYAGE : SUPPRESSION DE L'ANCIEN COMPTE ADMIN S'IL EXISTE ---
+    const oldAdmin = await client.query("SELECT id FROM users WHERE username = 'admin'");
+    if (oldAdmin.rows.length > 0) {
+      console.log("⚠️ Suppression de l'ancien compte 'admin' détecté...");
+      await client.query("DELETE FROM users WHERE username = 'admin'");
+      console.log("✅ Ancien compte 'admin' supprimé.");
+    }
 
     console.log("✅ Base de données LSPD prête !");
 
