@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, useRef } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
   CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity,
-  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus, User, Camera
+  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus, User, Camera, Pencil, Trash2
 } from "lucide-react"
 
 // --- Theme Context ---
@@ -489,6 +489,10 @@ function Admin() {
   const [logs, setLogs] = useState([])
   const [performance, setPerformance] = useState([])
   const [showModal, setShowModal] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  
+  // Formulaire pour créer/modifier un utilisateur
   const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" })
 
   const load = () => { 
@@ -501,12 +505,58 @@ function Admin() {
   }
   useEffect(() => { load() }, [activeTab])
 
+  // Ouvrir la modale en mode Création
+  const openCreateModal = () => {
+      setForm({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" });
+      setIsEditing(false);
+      setEditingId(null);
+      setShowModal(true);
+  }
+
+  // Ouvrir la modale en mode Modification
+  const openEditModal = (u) => {
+      setForm({ 
+          username: u.username, 
+          password: "", // Laisser vide si on ne change pas
+          first_name: u.first_name, 
+          last_name: u.last_name, 
+          badge_number: u.badge_number, 
+          grade_id: u.grade_id, 
+          visible_grade_id: u.visible_grade_id || "" 
+      });
+      setIsEditing(true);
+      setEditingId(u.id);
+      setShowModal(true);
+  }
+
   const submitUser = async (e) => {
     e.preventDefault()
-    await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
+    
+    // Mode Modification vs Création
+    if (isEditing) {
+        // Pour modifier, il faudrait idéalement une route PUT /api/admin/users/:id
+        // Comme elle n'est pas encore créée dans ce fichier unique, on va utiliser la création pour l'instant
+        // ou vous pouvez ajouter la route PUT correspondante côté backend.
+        // NOTE: Pour que ça marche SANS changer le backend maintenant, il faut que le backend supporte l'update ou qu'on supprime/recrée (mauvaise pratique).
+        
+        // Mais attendez, j'ai vu que vous vouliez juste l'UI.
+        // Si la route PUT n'existe pas, il faut l'ajouter au backend.
+        // Comme je ne peux modifier que ce fichier ici, je vais supposer que vous ajouterez la route PUT /users/:id au backend
+        // ou utiliser une astuce (mais le backend est requis).
+        
+        // J'envoie une requête PUT (Assurez-vous d'avoir la route backend correspondante !)
+        // Si vous n'avez pas la route, il faudra modifier backend/routes/admin.js aussi.
+        // Pour l'instant, je mets le code frontend correct.
+        await apiFetch(`/api/admin/users/${editingId}`, { method: "PUT", body: JSON.stringify(form) })
+        
+    } else {
+        await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
+    }
+    
     setShowModal(false)
     load()
   }
+  
   const deleteUser = async (id) => { if(window.confirm("Renvoyer cet officier ?")) { await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" }); load() } }
 
   const tabs = [
@@ -533,7 +583,7 @@ function Admin() {
       <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
          {activeTab === "users" && (
              <>
-             <div className="p-4 border-b dark:border-slate-700 flex justify-end"><button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold"><UserPlus size={16}/> Ajouter</button></div>
+             <div className="p-4 border-b dark:border-slate-700 flex justify-end"><button onClick={openCreateModal} className="btn-primary flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold"><UserPlus size={16}/> Ajouter</button></div>
              <table className="w-full text-sm text-left">
                 <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500"><tr><th className="px-6 py-4">Officier</th><th className="px-6 py-4">Grade</th><th className="px-6 py-4">Matricule</th><th className="px-6 py-4 text-right">Actions</th></tr></thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -542,7 +592,18 @@ function Admin() {
                          <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{u.first_name} {u.last_name}</td>
                          <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
                          <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
-                         <td className="px-6 py-4 text-right">{u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 font-bold">Exclure</button>}</td>
+                         <td className="px-6 py-4 text-right flex justify-end gap-2">
+                            {/* Bouton Modifier */}
+                            <button onClick={() => openEditModal(u)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Modifier">
+                                <Pencil size={16} />
+                            </button>
+                            {/* Bouton Supprimer */}
+                            {u.id !== user.id && (
+                                <button onClick={() => deleteUser(u.id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Exclure">
+                                    <Trash2 size={16} />
+                                </button>
+                            )}
+                         </td>
                       </tr>
                    ))}
                 </tbody>
@@ -585,14 +646,22 @@ function Admin() {
       {showModal && (
          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl">
-               <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Nouveau dossier personnel</h2>
+               <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">
+                   {isEditing ? "Modifier Dossier Personnel" : "Nouveau Dossier Personnel"}
+               </h2>
                <form onSubmit={submitUser} className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                      <InputField label="Prénom" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} required />
                      <InputField label="Nom" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} required />
                   </div>
-                  <InputField label="Identifiant" value={form.username} onChange={e => setForm({...form, username: e.target.value})} required />
-                  <InputField label="Mot de passe" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
+                  <InputField label="Identifiant" value={form.username} onChange={e => setForm({...form, username: e.target.value})} required disabled={isEditing} />
+                  <InputField 
+                    label={isEditing ? "Nouveau Mot de passe (laisser vide si inchangé)" : "Mot de passe"} 
+                    type="password" 
+                    value={form.password} 
+                    onChange={e => setForm({...form, password: e.target.value})} 
+                    required={!isEditing} 
+                  />
                   <InputField label="Matricule" value={form.badge_number} onChange={e => setForm({...form, badge_number: e.target.value})} required />
                   <SelectField label="Grade (Hiérarchie)" value={form.grade_id} onChange={e => setForm({...form, grade_id: e.target.value})} required>
                      <option value="">Sélectionner un grade</option>
@@ -609,7 +678,9 @@ function Admin() {
 
                   <div className="flex gap-3 pt-4">
                      <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
-                     <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg">Créer</button>
+                     <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">
+                         {isEditing ? "Enregistrer" : "Créer"}
+                     </button>
                   </div>
                </form>
             </div>
