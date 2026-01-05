@@ -5,14 +5,13 @@ const bcrypt = require("bcrypt");
 const { isAuthenticated, isAdmin, hasPermission } = require("../middleware/auth");
 const logAction = require("../utils/logger");
 
-// --- STATS GLOBALES (Dashboard Admin) ---
+// --- STATS GLOBALES ---
 router.get("/stats", isAuthenticated, async (req, res) => {
   try {
     const users = await pool.query("SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active) as active FROM users");
-    const patients = await pool.query("SELECT COUNT(*) as total FROM patients"); // Civils
-    const appointments = await pool.query("SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status='pending') as pending FROM appointments"); // Plaintes
+    const patients = await pool.query("SELECT COUNT(*) as total FROM patients");
+    const appointments = await pool.query("SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status='pending') as pending FROM appointments");
     
-    // Répartition par grade (Pour le graphique camembert)
     const gradeDistribution = await pool.query("SELECT g.name, g.color, COUNT(u.id) as count FROM grades g LEFT JOIN users u ON u.grade_id = g.id GROUP BY g.id, g.name, g.color ORDER BY count DESC");
     
     res.json({
@@ -28,7 +27,7 @@ router.get("/stats", isAuthenticated, async (req, res) => {
   }
 });
 
-// --- PERFORMANCE / STATS DÉTAILLÉES (Manquant dans la v1) ---
+// --- PERFORMANCE / LOGS ---
 router.get("/performance", isAuthenticated, hasPermission('view_logs'), async (req, res) => {
     try {
         const query = `
@@ -50,7 +49,6 @@ router.get("/performance", isAuthenticated, hasPermission('view_logs'), async (r
     }
 });
 
-// --- LOGS SYSTÈME (Manquant dans la v1) ---
 router.get("/logs", isAuthenticated, hasPermission('view_logs'), async (req, res) => {
     try {
         const { limit = 100 } = req.query;
@@ -73,9 +71,9 @@ router.get("/grades", isAuthenticated, async (req, res) => {
   res.json(result.rows);
 });
 
-// --- UTILISATEURS (CRUD Complet) ---
+// --- UTILISATEURS (CRUD Complet avec Sécurité Hiérarchique) ---
 router.get("/users", isAuthenticated, isAdmin, async (req, res) => {
-  const result = await pool.query(`SELECT u.*, g.name as grade_name FROM users u LEFT JOIN grades g ON u.grade_id = g.id ORDER BY u.id DESC`);
+  const result = await pool.query(`SELECT u.*, g.name as grade_name, g.level as grade_level FROM users u LEFT JOIN grades g ON u.grade_id = g.id ORDER BY g.level DESC, u.last_name`);
   res.json(result.rows);
 });
 
@@ -83,31 +81,61 @@ router.post("/users", isAuthenticated, isAdmin, async (req, res) => {
   try {
     const { username, password, first_name, last_name, badge_number, grade_id, visible_grade_id } = req.body;
     
-    // Vérification Hiérarchie (Identique EMS)
+    // SÉCURITÉ HIÉRARCHIQUE : Impossible d'assigner un grade >= au sien (sauf Dev)
     if (req.user.grade_level !== 99) {
         const targetGrade = await pool.query("SELECT level FROM grades WHERE id = $1", [grade_id]);
         if (targetGrade.rows.length > 0 && targetGrade.rows[0].level >= req.user.grade_level) {
-            return res.status(403).json({ error: "Grade trop élevé." });
+            return res.status(403).json({ error: "Permission refusée : Vous ne pouvez pas créer un utilisateur de grade égal ou supérieur au vôtre." });
         }
     }
+
+    const check = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    if (check.rows.length > 0) return res.status(400).json({ error: "Ce matricule/identifiant existe déjà." });
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const visGrade = (visible_grade_id && visible_grade_id !== "") ? visible_grade_id : null;
 
     const result = await pool.query(
-      `INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, visible_grade_id, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) RETURNING id`,
+      `INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, visible_grade_id, is_active) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) RETURNING id`,
       [username, hashedPassword, first_name, last_name, badge_number, grade_id, visGrade]
     );
-    await logAction(req.user.id, "CREATE_USER", `Ajout officier ${first_name} ${last_name}`, result.rows[0].id);
+    
+    await logAction(req.user.id, "CREATE_USER", `Ajout officier ${first_name} ${last_name} (Mat: ${badge_number})`, result.rows[0].id);
     res.json({ success: true });
-  } catch (err) { res.status(500).json({ error: "Erreur création" }); }
+  } catch (err) { 
+      console.error(err);
+      res.status(500).json({ error: "Erreur lors de la création de l'utilisateur" }); 
+  }
 });
 
 router.delete("/users/:id", isAuthenticated, isAdmin, async (req, res) => {
-  if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: "Impossible de se supprimer soi-même" });
-  await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
-  await logAction(req.user.id, "DELETE_USER", `Suppression utilisateur ID ${req.params.id}`, req.params.id);
-  res.json({ success: true });
+  try {
+    const targetId = parseInt(req.params.id);
+    if (targetId === req.user.id) return res.status(400).json({ error: "Impossible de se supprimer soi-même" });
+
+    // SÉCURITÉ HIÉRARCHIQUE : Impossible de supprimer un supérieur (sauf Dev)
+    if (req.user.grade_level !== 99) {
+        const target = await pool.query("SELECT g.level FROM users u LEFT JOIN grades g ON u.grade_id = g.id WHERE u.id = $1", [targetId]);
+        const targetLevel = target.rows[0]?.level || 0;
+        
+        if (targetLevel >= req.user.grade_level) {
+            return res.status(403).json({ error: "Permission refusée : Vous ne pouvez pas exclure un supérieur." });
+        }
+    }
+
+    // Nettoyage avant suppression pour éviter les erreurs FK
+    await pool.query("UPDATE appointments SET assigned_medic_id = NULL WHERE assigned_medic_id = $1", [targetId]);
+    await pool.query("DELETE FROM logs WHERE user_id = $1", [targetId]); // On supprime ses logs ou on pourrait les anonymiser
+    
+    await pool.query("DELETE FROM users WHERE id = $1", [targetId]);
+    
+    await logAction(req.user.id, "DELETE_USER", `Suppression utilisateur ID ${targetId}`, targetId);
+    res.json({ success: true });
+  } catch (err) { 
+      console.error("Delete Error:", err);
+      res.status(500).json({ error: "Erreur serveur lors de la suppression" }); 
+  }
 });
 
 module.exports = router;
