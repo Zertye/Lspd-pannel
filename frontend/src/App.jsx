@@ -1,0 +1,618 @@
+import { BrowserRouter, Routes, Route, Navigate, useLocation, Link, useNavigate } from "react-router-dom"
+import { createContext, useContext, useState, useEffect, useRef } from "react"
+import { 
+  Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
+  CheckCircle, Send, Phone, User, Camera, Sun, Moon, Lock, AlertTriangle, FileText, Activity
+} from "lucide-react"
+
+// --- Theme Context ---
+const ThemeContext = createContext(null)
+export function useTheme() { return useContext(ThemeContext) }
+
+function ThemeProvider({ children }) {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('theme')) return localStorage.getItem('theme')
+    return 'dark' // Default LSPD Dark Mode
+  })
+
+  useEffect(() => {
+    const root = window.document.documentElement
+    if (theme === 'dark') root.classList.add('dark')
+    else root.classList.remove('dark')
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+  return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>
+}
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme()
+  return (
+    <button onClick={toggleTheme} className="p-2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-yellow-400 hover:scale-105 transition-all">
+      {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+    </button>
+  )
+}
+
+// --- Auth Context ---
+const AuthContext = createContext(null)
+export function useAuth() { return useContext(AuthContext) }
+const TOKEN_KEY = "lspd_auth_token";
+
+export const apiFetch = async (url, options = {}) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers = { ...options.headers };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
+  return await fetch(url, { ...options, headers });
+};
+
+function AuthProvider({ children }) {
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchUser = async () => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) { setUser(null); setLoading(false); return null; }
+      const r = await apiFetch("/api/auth/me");
+      if (r.ok) {
+        const d = await r.json();
+        setUser(d.user);
+      } else {
+        localStorage.removeItem(TOKEN_KEY);
+        setUser(null);
+      }
+    } catch (e) { setUser(null); }
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchUser() }, [])
+
+  const login = async (username, password) => {
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (data.success && data.token) {
+        localStorage.setItem(TOKEN_KEY, data.token);
+        setUser(data.user);
+        return { success: true };
+      }
+      return { success: false, error: data.error };
+    } catch (e) { return { success: false, error: "Erreur connexion" }; }
+  }
+
+  const logout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    setUser(null);
+    window.location.href = "/";
+  }
+
+  const hasPerm = (perm) => user?.grade_level === 99 || user?.is_admin || user?.grade_permissions?.[perm] === true;
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, logout, hasPerm, refreshUser: fetchUser }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+// --- UI Components ---
+const Logo = ({ size = 40 }) => (
+  // Placeholder logo LSPD si pas d'image
+  <div className="flex items-center justify-center font-black text-slate-800 dark:text-white" style={{ fontSize: size/2.5 }}>
+    <Shield size={size} className="text-blue-700 dark:text-blue-500" />
+  </div>
+)
+
+const InputField = ({ label, ...props }) => (
+  <div className="mb-3">
+    {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
+    <input className="w-full px-3 py-2.5 text-sm rounded-md bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 focus:border-blue-500 outline-none transition-all text-slate-800 dark:text-white" {...props} />
+  </div>
+)
+
+const SelectField = ({ label, children, ...props }) => (
+  <div className="mb-3">
+    {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
+    <select className="w-full px-3 py-2.5 text-sm rounded-md bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 focus:border-blue-500 outline-none transition-all text-slate-800 dark:text-white appearance-none cursor-pointer" {...props}>{children}</select>
+  </div>
+)
+
+const TextArea = ({ label, ...props }) => (
+  <div className="mb-3">
+    {label && <label className="block text-xs font-bold uppercase tracking-wider mb-1.5 text-slate-500 dark:text-slate-400">{label}</label>}
+    <textarea className="w-full px-3 py-2.5 text-sm rounded-md bg-slate-100 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 focus:border-blue-500 outline-none transition-all text-slate-800 dark:text-white min-h-[100px] resize-none" {...props} />
+  </div>
+)
+
+function Layout({ children }) {
+  const { user, logout, hasPerm } = useAuth()
+  const location = useLocation()
+  const [mobileMenu, setMobileMenu] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+
+  // Navigation stricte : Dashboard, Effectif, Admin
+  const navs = [
+    { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard" },
+    { icon: ClipboardList, label: "Plaintes", to: "/plaintes" }, // Ancien Appointments
+    { icon: Users, label: "Effectif LSPD", to: "/roster" },
+  ]
+  if (hasPerm('manage_users')) navs.push({ icon: ShieldAlert, label: "Administration", to: "/admin" })
+
+  return (
+    <div className="min-h-screen flex bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans">
+      {/* Sidebar */}
+      <aside className="hidden lg:flex flex-col w-64 bg-slate-900 border-r border-slate-800 fixed h-full z-30">
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+          <Shield className="text-blue-600" size={32} />
+          <div>
+            <h1 className="text-white font-black text-lg tracking-tight">L.S.P.D</h1>
+            <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">MDT System</p>
+          </div>
+        </div>
+        <nav className="flex-1 p-4 space-y-1">
+          {navs.map(n => (
+            <Link key={n.to} to={n.to} className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${location.pathname === n.to ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
+              <n.icon size={18} /> {n.label}
+            </Link>
+          ))}
+        </nav>
+        <div className="p-4 bg-slate-950 border-t border-slate-800">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white border-2 border-slate-700">
+              {user?.first_name?.[0]}
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-sm font-bold text-white truncate">{user?.grade_name}</p>
+              <p className="text-xs text-slate-500 truncate">{user?.last_name} {user?.first_name}</p>
+            </div>
+          </div>
+          <button onClick={logout} className="w-full flex items-center justify-center gap-2 py-2 rounded-md bg-red-900/20 text-red-400 hover:bg-red-900/40 text-xs font-bold uppercase tracking-wider transition-all">
+            <LogOut size={14} /> Déconnexion
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 lg:ml-64 flex flex-col min-h-screen">
+        <header className="lg:hidden h-16 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 sticky top-0 z-20">
+          <div className="flex items-center gap-2">
+             <Shield className="text-blue-600" size={24} />
+             <span className="font-bold text-white">LSPD MDT</span>
+          </div>
+          <button onClick={() => setMobileMenu(!mobileMenu)} className="text-white"><Menu/></button>
+        </header>
+
+        {mobileMenu && (
+            <div className="fixed inset-0 bg-slate-900 z-50 p-4 lg:hidden">
+                <button onClick={() => setMobileMenu(false)} className="absolute top-4 right-4 text-white"><X/></button>
+                <nav className="mt-12 space-y-2">
+                    {navs.map(n => (
+                        <Link key={n.to} to={n.to} onClick={() => setMobileMenu(false)} className="flex items-center gap-3 p-4 rounded-lg bg-slate-800 text-white font-bold">
+                            <n.icon size={20}/> {n.label}
+                        </Link>
+                    ))}
+                    <button onClick={logout} className="w-full flex items-center gap-3 p-4 rounded-lg bg-red-900/20 text-red-400 font-bold mt-8">
+                        <LogOut size={20}/> Déconnexion
+                    </button>
+                </nav>
+            </div>
+        )}
+
+        <div className="p-6 lg:p-10 max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {children}
+        </div>
+      </main>
+    </div>
+  )
+}
+
+// --- Pages ---
+
+function Dashboard() {
+  const { user } = useAuth()
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    // On utilise les stats admin car c'est le seul endpoint générique
+    // Dans un vrai LSPD on filtrerait différemment mais on garde l'architecture
+    apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
+  }, [])
+
+  return (
+    <Layout>
+      <div className="mb-8">
+        <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">TABLEAU DE BORD</h1>
+        <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-6 mb-8">
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-600 shadow-sm">
+           <div className="flex justify-between items-start">
+              <div>
+                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Effectif Total</p>
+                 <p className="text-3xl font-black text-slate-800 dark:text-white">{stats?.users?.total || "..."}</p>
+              </div>
+              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><Shield size={24}/></div>
+           </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-amber-500 shadow-sm">
+           <div className="flex justify-between items-start">
+              <div>
+                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Plaintes en attente</p>
+                 <p className="text-3xl font-black text-slate-800 dark:text-white">{stats?.appointments?.pending || "..."}</p>
+              </div>
+              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600"><AlertTriangle size={24}/></div>
+           </div>
+        </div>
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-emerald-500 shadow-sm">
+           <div className="flex justify-between items-start">
+              <div>
+                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Statut Service</p>
+                 <p className="text-lg font-bold text-emerald-600 mt-1">OPÉRATIONNEL</p>
+              </div>
+              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><CheckCircle size={24}/></div>
+           </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-900 rounded-xl p-8 text-center border border-slate-800">
+         <Shield size={48} className="mx-auto text-slate-700 mb-4" />
+         <h2 className="text-white font-bold text-xl mb-2">Message du Chef</h2>
+         <p className="text-slate-400 max-w-2xl mx-auto">
+            "Protéger et Servir". Assurez-vous que vos rapports sont complets. 
+            Les plaintes doivent être traitées sous 24h. Soyez prudents dehors.
+         </p>
+      </div>
+    </Layout>
+  )
+}
+
+function Plaintes() {
+  // Adaptation de la page "Appointments" en "Plaintes"
+  const { user, hasPerm } = useAuth()
+  const [complaints, setComplaints] = useState([])
+
+  const load = () => {
+    apiFetch("/api/appointments").then(r => r.json()).then(d => setComplaints(Array.isArray(d) ? d : [])).catch(() => setComplaints([]))
+  }
+  useEffect(() => { load() }, [])
+
+  const handleStatus = async (id, action) => {
+    let url = `/api/appointments/${id}/${action}`
+    if (action === "complete") {
+        await apiFetch(url, { method: "POST", body: JSON.stringify({ completion_notes: "Plainte traitée" }) })
+    } else {
+        await apiFetch(url, { method: "POST" })
+    }
+    load()
+  }
+
+  return (
+    <Layout>
+      <div className="flex justify-between items-center mb-8">
+         <div>
+            <h1 className="text-3xl font-black text-slate-900 dark:text-white">PLAINTES</h1>
+            <p className="text-slate-500 font-medium">Gestion des dépôts de plainte citoyens</p>
+         </div>
+         <button onClick={load} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg hover:opacity-80 transition-opacity"><Activity size={20}/></button>
+      </div>
+
+      <div className="grid gap-4">
+        {complaints.map(c => (
+          <div key={c.id} className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row justify-between gap-4">
+             <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                   <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${c.status === 'pending' ? 'bg-amber-100 text-amber-700' : c.status === 'assigned' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      {c.status === 'pending' ? 'En Attente' : c.status === 'assigned' ? 'En Cours' : 'Traitée'}
+                   </span>
+                   <span className="text-slate-400 text-xs font-mono">{new Date(c.created_at).toLocaleDateString()}</span>
+                </div>
+                <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">{c.appointment_type} - {c.patient_name}</h3>
+                <p className="text-slate-500 text-sm mb-3 line-clamp-2">{c.description}</p>
+                <div className="flex gap-4 text-xs text-slate-400 font-mono">
+                   <span className="flex items-center gap-1"><Phone size={12}/> {c.patient_phone || "N/A"}</span>
+                   <span className="flex items-center gap-1"><Users size={12}/> {c.patient_discord || "N/A"}</span>
+                </div>
+             </div>
+             
+             {c.status !== 'completed' && hasPerm('manage_appointments') && (
+                <div className="flex md:flex-col gap-2 justify-center border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 pt-4 md:pt-0 md:pl-4">
+                   {c.status === 'pending' && <button onClick={() => handleStatus(c.id, 'assign')} className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700">Prendre</button>}
+                   {c.status === 'assigned' && <button onClick={() => handleStatus(c.id, 'complete')} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700">Clôturer</button>}
+                   <button onClick={() => handleStatus(c.id, 'cancel')} className="px-4 py-2 bg-red-600/10 text-red-500 text-sm font-bold rounded-lg hover:bg-red-600/20">Refuser</button>
+                </div>
+             )}
+          </div>
+        ))}
+        {complaints.length === 0 && <div className="text-center p-12 text-slate-400 font-medium bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">Aucune plainte à traiter</div>}
+      </div>
+    </Layout>
+  )
+}
+
+function Roster() {
+  const [members, setMembers] = useState([])
+  useEffect(() => { 
+    apiFetch("/api/users/roster").then(r => r.json()).then(d => setMembers(Array.isArray(d) ? d : []))
+  }, [])
+
+  // Tri par hiérarchie LSPD
+  const order = ["High Command", "Command Staff", "Supervisors", "Officers", "Système"];
+  const grouped = members.reduce((acc, m) => {
+      const cat = m.grade_category || "Autres";
+      if(!acc[cat]) acc[cat] = [];
+      acc[cat].push(m);
+      return acc;
+  }, {});
+
+  return (
+    <Layout>
+      <div className="mb-8">
+         <h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1>
+         <p className="text-slate-500 font-medium">Liste des officiers et état-major</p>
+      </div>
+
+      <div className="space-y-8">
+         {order.map(cat => grouped[cat] && (
+            <div key={cat}>
+               <h3 className="text-sm font-black uppercase tracking-widest text-blue-600 mb-4 border-b border-blue-900/30 pb-2">{cat}</h3>
+               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {grouped[cat].sort((a,b) => b.grade_level - a.grade_level).map(m => (
+                     <div key={m.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl flex items-center gap-4 border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <div className="w-12 h-12 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center font-bold text-slate-500 overflow-hidden">
+                           {m.profile_picture ? <img src={m.profile_picture} className="w-full h-full object-cover"/> : m.username[0]}
+                        </div>
+                        <div>
+                           <p className="font-bold text-slate-800 dark:text-white">{m.grade_name}</p>
+                           <p className="text-sm text-slate-500">{m.last_name} {m.first_name}</p>
+                           <p className="text-xs font-mono text-slate-400 mt-0.5">Mle: {m.badge_number || "N/A"}</p>
+                        </div>
+                     </div>
+                  ))}
+               </div>
+            </div>
+         ))}
+      </div>
+    </Layout>
+  )
+}
+
+function Admin() {
+  // Version simplifiée de l'admin pour gérer les utilisateurs/grades
+  const { user } = useAuth()
+  const [users, setUsers] = useState([])
+  const [showModal, setShowModal] = useState(false)
+  const [grades, setGrades] = useState([])
+  const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "" })
+
+  const load = () => {
+    apiFetch("/api/admin/users").then(r => r.json()).then(setUsers)
+    apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades)
+  }
+  useEffect(() => { load() }, [])
+
+  const submitUser = async (e) => {
+    e.preventDefault()
+    await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
+    setShowModal(false)
+    load()
+  }
+
+  const deleteUser = async (id) => {
+    if(window.confirm("Renvoyer cet officier ?")) {
+        await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" })
+        load()
+    }
+  }
+
+  return (
+    <Layout>
+      <div className="flex justify-between items-center mb-8">
+         <h1 className="text-3xl font-black text-slate-900 dark:text-white">ADMINISTRATION</h1>
+         <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Ajouter Officier</button>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+         <table className="w-full text-sm text-left">
+            <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500">
+               <tr>
+                  <th className="px-6 py-4">Officier</th>
+                  <th className="px-6 py-4">Grade</th>
+                  <th className="px-6 py-4">Matricule</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+               </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+               {users.map(u => (
+                  <tr key={u.id}>
+                     <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{u.first_name} {u.last_name}</td>
+                     <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
+                     <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
+                     <td className="px-6 py-4 text-right">
+                        {u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 hover:text-red-700 font-bold">Exclure</button>}
+                     </td>
+                  </tr>
+               ))}
+            </tbody>
+         </table>
+      </div>
+
+      {showModal && (
+         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl">
+               <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Nouveau dossier personnel</h2>
+               <form onSubmit={submitUser} className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                     <InputField label="Prénom" value={form.first_name} onChange={e => setForm({...form, first_name: e.target.value})} required />
+                     <InputField label="Nom" value={form.last_name} onChange={e => setForm({...form, last_name: e.target.value})} required />
+                  </div>
+                  <InputField label="Identifiant" value={form.username} onChange={e => setForm({...form, username: e.target.value})} required />
+                  <InputField label="Mot de passe" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required />
+                  <InputField label="Matricule" value={form.badge_number} onChange={e => setForm({...form, badge_number: e.target.value})} required />
+                  <SelectField label="Grade" value={form.grade_id} onChange={e => setForm({...form, grade_id: e.target.value})} required>
+                     <option value="">Sélectionner un grade</option>
+                     {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </SelectField>
+                  <div className="flex gap-3 pt-4">
+                     <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                     <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg">Créer</button>
+                  </div>
+               </form>
+            </div>
+         </div>
+      )}
+    </Layout>
+  )
+}
+
+function PublicComplaint() {
+  // Page publique "Porter plainte" (remplace PublicBooking)
+  const [form, setForm] = useState({ patient_name: "", patient_phone: "", patient_discord: "", appointment_type: "Vol", description: "" })
+  const [done, setDone] = useState(false)
+  const navigate = useNavigate()
+
+  const submit = async (e) => {
+    e.preventDefault()
+    await fetch("/api/appointments/public", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(form) })
+    setDone(true)
+  }
+
+  if(done) return (
+     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-white mb-6"><CheckCircle size={40}/></div>
+        <h1 className="text-3xl font-black text-white mb-2">Plainte Enregistrée</h1>
+        <p className="text-slate-400 mb-8 max-w-md">Votre déclaration a bien été transmise aux services du LSPD. Un officier prendra contact avec vous rapidement.</p>
+        <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700">Retour accueil</button>
+     </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 flex items-center justify-center p-4">
+       <div className="w-full max-w-lg bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-xl">
+          <div className="flex items-center gap-4 mb-8 border-b border-slate-200 dark:border-slate-700 pb-6">
+             <Shield size={48} className="text-blue-600"/>
+             <div>
+                <h1 className="text-2xl font-black text-slate-900 dark:text-white">DÉPOSER UNE PLAINTE</h1>
+                <p className="text-slate-500 font-medium text-sm">Formulaire officiel LSPD</p>
+             </div>
+          </div>
+          <form onSubmit={submit} className="space-y-4">
+             <InputField label="Identité (Nom Prénom)" placeholder="John Doe" value={form.patient_name} onChange={e => setForm({...form, patient_name: e.target.value})} required />
+             <div className="grid grid-cols-2 gap-4">
+                <InputField label="Téléphone" placeholder="555-0100" value={form.patient_phone} onChange={e => setForm({...form, patient_phone: e.target.value})} required />
+                <InputField label="Discord" placeholder="Ex: pseudo#0000" value={form.patient_discord} onChange={e => setForm({...form, patient_discord: e.target.value})} />
+             </div>
+             <SelectField label="Motif de la plainte" value={form.appointment_type} onChange={e => setForm({...form, appointment_type: e.target.value})}>
+                <option value="Vol">Vol / Cambriolage</option>
+                <option value="Agression">Agression / Coups et blessures</option>
+                <option value="Menace">Menaces / Harcèlement</option>
+                <option value="Dégradation">Dégradation de biens</option>
+                <option value="Autre">Autre motif</option>
+             </SelectField>
+             <TextArea label="Description des faits" placeholder="Décrivez précisément ce qui s'est passé..." value={form.description} onChange={e => setForm({...form, description: e.target.value})} required />
+             
+             <div className="pt-4 flex gap-3">
+                <button type="button" onClick={() => navigate('/')} className="flex-1 py-3 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg">Annuler</button>
+                <button type="submit" className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><Send size={18}/> Envoyer</button>
+             </div>
+          </form>
+       </div>
+    </div>
+  )
+}
+
+function Login() {
+  const { login } = useAuth()
+  const [form, setForm] = useState({ username: "", password: "" })
+  const [err, setErr] = useState("")
+  const navigate = useNavigate()
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setErr("")
+    const res = await login(form.username, form.password)
+    if(res.success) window.location.href = "/dashboard"
+    else setErr(res.error || "Erreur d'identification")
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl">
+         <div className="text-center mb-8">
+            <Shield size={64} className="text-blue-600 mx-auto mb-4"/>
+            <h1 className="text-2xl font-black text-white">LSPD INTRANET</h1>
+            <p className="text-slate-400 text-sm font-medium">Accès réservé aux officiers</p>
+         </div>
+         {err && <div className="bg-red-500/20 text-red-400 p-3 rounded-lg mb-4 text-sm font-bold text-center">{err}</div>}
+         <form onSubmit={submit} className="space-y-4">
+            <InputField label="Matricule / Identifiant" value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
+            <InputField label="Mot de passe" type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
+            <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors shadow-lg shadow-blue-900/50">CONNEXION</button>
+         </form>
+         <div className="mt-6 text-center">
+             <Link to="/plainte" className="text-slate-500 hover:text-white text-xs font-bold uppercase tracking-wider transition-colors">Déposer une plainte (Civil)</Link>
+         </div>
+      </div>
+    </div>
+  )
+}
+
+function Landing() {
+   // Page d'accueil simple avec choix Connexion ou Plainte
+   return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center relative overflow-hidden">
+         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
+         <div className="relative z-10 text-center space-y-8 p-6">
+            <Shield size={120} className="text-blue-700 mx-auto drop-shadow-2xl"/>
+            <div>
+               <h1 className="text-6xl font-black text-white tracking-tighter mb-2">L.S.P.D</h1>
+               <p className="text-blue-400 text-xl font-bold uppercase tracking-widest">Los Santos Police Department</p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-4 pt-8">
+               <Link to="/login" className="px-8 py-4 bg-blue-700 hover:bg-blue-600 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-900/50 flex items-center justify-center gap-2">
+                  <Lock size={20}/> ACCÈS OFFICIER
+               </Link>
+               <Link to="/plainte" className="px-8 py-4 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-all border border-slate-700 flex items-center justify-center gap-2">
+                  <FileText size={20}/> PORTER PLAINTE
+               </Link>
+            </div>
+         </div>
+         <div className="absolute bottom-6 text-slate-600 text-xs font-mono">SECURE CONNECTION // AUTHORIZED PERSONNEL ONLY</div>
+      </div>
+   )
+}
+
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>
+  if (!user) return <Navigate to="/login" />
+  return children
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <ThemeProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/plainte" element={<PublicComplaint />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/plaintes" element={<ProtectedRoute><Plaintes /></ProtectedRoute>} />
+            <Route path="/roster" element={<ProtectedRoute><Roster /></ProtectedRoute>} />
+            <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/" />} />
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
+    </BrowserRouter>
+  )
+}
