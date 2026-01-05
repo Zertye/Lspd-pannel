@@ -9,7 +9,6 @@ router.post("/public", async (req, res) => {
   try {
     const { patient_name, patient_phone, patient_discord, appointment_type, description } = req.body;
     
-    // On utilise les champs existants mais avec une logique LSPD
     // appointment_type = Type de délit (Vol, Agression...)
     // description = Faits
     
@@ -17,31 +16,6 @@ router.post("/public", async (req, res) => {
       "INSERT INTO appointments (patient_name, patient_phone, patient_discord, appointment_type, description, status) VALUES ($1,$2,$3,$4,$5, 'pending') RETURNING *",
       [patient_name, patient_phone, patient_discord, appointment_type, description]
     );
-
-    // Notification Discord LSPD
-    try {
-        const webhookUrl = "VOTRE_WEBHOOK_DISCORD_ICI"; 
-        // Si vous n'avez pas de webhook configuré, laissez vide ou commentez la suite
-        if(webhookUrl && webhookUrl.startsWith("http")) {
-            await fetch(webhookUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    embeds: [{
-                        title: "👮 Nouvelle Plainte Déposée",
-                        color: 2448619, // Bleu LSPD
-                        fields: [
-                            { name: "Plaignant", value: patient_name, inline: true },
-                            { name: "Motif", value: appointment_type, inline: true },
-                            { name: "Description", value: description }
-                        ],
-                        footer: { text: "LSPD Intranet System" },
-                        timestamp: new Date().toISOString()
-                    }]
-                })
-            });
-        }
-    } catch (e) { console.error("Webhook Error:", e); }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -57,9 +31,8 @@ router.get("/", isAuthenticated, async (req, res) => {
       SELECT a.*, u.first_name as medic_first_name, u.last_name as medic_last_name 
       FROM appointments a 
       LEFT JOIN users u ON a.assigned_medic_id = u.id 
-      ORDER BY FIELD(status, 'pending', 'assigned', 'completed'), created_at DESC
-    `.replace("FIELD(status, 'pending', 'assigned', 'completed')", "CASE WHEN status='pending' THEN 1 WHEN status='assigned' THEN 2 ELSE 3 END")); 
-    // ^ Correction compatibilité Postgres pour le tri
+      ORDER BY CASE WHEN status='pending' THEN 1 WHEN status='assigned' THEN 2 ELSE 3 END, created_at DESC
+    `);
     
     res.json(result.rows);
   } catch (err) {
