@@ -28,10 +28,14 @@ const startServer = async () => {
     const pool = require("./config/database");
     const passport = require("./config/passport");
     const initDatabase = require("./config/initDb");
+    const initCentrale = require("./config/initCentrale");
     const { extractUser } = require("./middleware/auth");
 
     // Init DB (Création tables & Grades LSPD)
     await initDatabase();
+    
+    // Init Système Centrale
+    await initCentrale();
 
     app.use(session({
       store: new PgSession({ pool: pool, tableName: "session", createTableIfMissing: true }),
@@ -56,6 +60,7 @@ const startServer = async () => {
     app.use("/api/users", require("./routes/users"));
     app.use("/api/appointments", require("./routes/appointments")); // Gestion Plaintes
     app.use("/api/admin", require("./routes/admin"));
+    app.use("/api/centrale", require("./routes/centrale")); // Système Centrale
 
     // Routes "Legacy" (gardées pour éviter les erreurs d'import mais vides/inutilisées par le front)
     app.use("/api/patients", require("./routes/patients")); 
