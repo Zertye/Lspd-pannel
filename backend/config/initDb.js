@@ -56,10 +56,10 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Tables héritées (conservées pour ne pas casser l'architecture, même si inutilisées)
+      -- Tables héritées (conservées pour compatibilité legacy)
       CREATE TABLE IF NOT EXISTS specialties (id SERIAL PRIMARY KEY, name VARCHAR(100), icon VARCHAR(10));
       CREATE TABLE IF NOT EXISTS user_specialties (user_id INTEGER, specialty_id INTEGER, PRIMARY KEY (user_id, specialty_id));
-      CREATE TABLE IF NOT EXISTS patients (id SERIAL PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), created_by INTEGER);
+      CREATE TABLE IF NOT EXISTS patients (id SERIAL PRIMARY KEY, first_name VARCHAR(100), last_name VARCHAR(100), created_by INTEGER, photo TEXT, insurance_number VARCHAR(50), chronic_conditions TEXT, phone VARCHAR(20), gender VARCHAR(20), date_of_birth DATE);
       CREATE TABLE IF NOT EXISTS medical_reports (id SERIAL PRIMARY KEY, patient_id INTEGER, medic_id INTEGER, diagnosis TEXT, incident_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
     `);
 
@@ -82,6 +82,7 @@ const initDatabase = async () => {
     await addColumnIfNotExists('users', 'profile_picture', 'TEXT');
     await addColumnIfNotExists('users', 'is_admin', 'BOOLEAN DEFAULT FALSE');
     await addColumnIfNotExists('users', 'is_active', 'BOOLEAN DEFAULT TRUE');
+    await addColumnIfNotExists('users', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
     // 3. INITIALISATION DES GRADES LSPD (STRICT)
     const gradesExist = await client.query("SELECT COUNT(*) FROM grades");
@@ -123,7 +124,6 @@ const initDatabase = async () => {
       console.log("⚡ Création du compte admin par défaut...");
       const hashedPassword = await bcrypt.hash("12345", 10);
       
-      // Récupération ID grade Dev
       const devGrade = await client.query("SELECT id FROM grades WHERE level = 99 LIMIT 1");
       const devGradeId = devGrade.rows[0]?.id;
 
