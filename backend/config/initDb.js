@@ -122,8 +122,14 @@ const initDatabase = async () => {
     const oldAdmin = await client.query("SELECT id FROM users WHERE username = 'admin'");
     if (oldAdmin.rows.length > 0) {
       console.log("⚠️ Suppression de l'ancien compte 'admin' détecté...");
-      await client.query("DELETE FROM users WHERE username = 'admin'");
-      console.log("✅ Ancien compte 'admin' supprimé.");
+      const adminId = oldAdmin.rows[0].id;
+      
+      // Suppression des logs liés à cet admin pour éviter l'erreur de clé étrangère
+      await client.query("DELETE FROM logs WHERE user_id = $1", [adminId]);
+      
+      // Suppression de l'utilisateur
+      await client.query("DELETE FROM users WHERE id = $1", [adminId]);
+      console.log("✅ Ancien compte 'admin' et ses logs supprimés.");
     }
 
     console.log("✅ Base de données LSPD prête !");
