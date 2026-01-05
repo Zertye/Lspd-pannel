@@ -26,20 +26,24 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: "7d" });
     const fullUser = await getFullUser(user.id);
 
-    if (req.logIn) req.logIn(user, () => {}); // Session Passport
+    if (req.logIn) req.logIn(user, () => {});
 
     res.json({ success: true, token, user: fullUser });
   } catch (err) { res.status(500).json({ error: "Erreur serveur" }); }
 });
 
 router.get("/me", async (req, res) => {
-  // Simplifié pour gérer Session ou JWT
   let userId = req.user?.id;
   if (!userId && req.headers.authorization) {
      try { userId = jwt.verify(req.headers.authorization.split(" ")[1], JWT_SECRET).id; } catch {}
   }
   if (!userId) return res.status(401).json({ error: "Non connecté" });
   res.json({ user: await getFullUser(userId) });
+});
+
+router.post("/logout", (req, res) => {
+  req.logout(() => {});
+  res.json({ success: true });
 });
 
 module.exports = router;
