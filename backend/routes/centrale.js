@@ -194,6 +194,66 @@ router.post("/service/end", isAuthenticated, async (req, res) => {
   }
 });
 
+// Forcer la fin de service d'un officier
+router.post("/service/force-end", isAuthenticated, async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    // Vérifier la permission
+    const canForce = userHasPermission(req.user, 'force_end_service');
+    if (!canForce && req.user.grade_level !== 99) {
+      return res.status(403).json({ error: "Permission refusée" });
+    }
+
+    // Vérifier que l'officier est bien en service
+    const service = await pool.query(
+      "SELECT * FROM services WHERE user_id = $1 AND is_active = TRUE AND end_time IS NULL",
+      [userId]
+    );
+
+    if (service.rows.length === 0) {
+      return res.status(400).json({ error: "Cet officier n'est pas en service" });
+    }
+
+    const serviceId = service.rows[0].id;
+    const startTime = new Date(service.rows[0].start_time);
+    const endTime = new Date();
+    const duration = Math.floor((endTime - startTime) / 1000);
+
+    // Retirer l'utilisateur de sa patrouille
+    await pool.query("DELETE FROM patrol_members WHERE user_id = $1", [userId]);
+
+    // Retirer le statut d'opérateur centrale
+    await pool.query(
+      "UPDATE centrale_operators SET is_active = FALSE WHERE user_id = $1",
+      [userId]
+    );
+
+    // Mettre à jour le service
+    await pool.query(
+      `UPDATE services SET end_time = CURRENT_TIMESTAMP, total_duration = $1, is_active = FALSE WHERE id = $2`,
+      [duration, serviceId]
+    );
+
+    // Mettre à jour le temps total de patrouille
+    await pool.query(
+      "UPDATE users SET total_patrol_time = COALESCE(total_patrol_time, 0) + $1 WHERE id = $2",
+      [duration, userId]
+    );
+
+    // Récupérer le nom de l'officier pour le log
+    const officerInfo = await pool.query("SELECT first_name, last_name FROM users WHERE id = $1", [userId]);
+    const officerName = officerInfo.rows[0] ? `${officerInfo.rows[0].first_name} ${officerInfo.rows[0].last_name}` : `ID ${userId}`;
+
+    await logAction(req.user.id, "FORCE_SERVICE_END", `Fin de service forcée pour ${officerName}`, 'service', serviceId, req);
+
+    res.json({ success: true, duration });
+  } catch (err) {
+    console.error("❌ Erreur Force Service End:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
 // Liste des officiers en service
 router.get("/service/online", isAuthenticated, async (req, res) => {
   try {
