@@ -2,23 +2,78 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../config/database");
 const bcrypt = require("bcrypt");
-const { isAuthenticated, isAdmin } = require("../middleware/auth");
+const { isAuthenticated, isAdmin, hasPermission } = require("../middleware/auth");
 const logAction = require("../utils/logger");
 
-// STATS LSPD
+// --- STATS GLOBALES (Dashboard Admin) ---
 router.get("/stats", isAuthenticated, async (req, res) => {
   try {
-    const users = await pool.query("SELECT COUNT(*) as total FROM users WHERE is_active = true");
-    const appointments = await pool.query("SELECT COUNT(*) as pending FROM appointments WHERE status = 'pending'");
+    const users = await pool.query("SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active) as active FROM users");
+    const patients = await pool.query("SELECT COUNT(*) as total FROM patients"); // Civils
+    const appointments = await pool.query("SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status='pending') as pending FROM appointments"); // Plaintes
+    
+    // Répartition par grade (Pour le graphique camembert)
+    const gradeDistribution = await pool.query("SELECT g.name, g.color, COUNT(u.id) as count FROM grades g LEFT JOIN users u ON u.grade_id = g.id GROUP BY g.id, g.name, g.color ORDER BY count DESC");
+    
     res.json({
       users: users.rows[0],
+      patients: patients.rows[0],
       appointments: appointments.rows[0],
-      reports: { total: 0 }, 
-      patients: { total: 0 }
+      reports: { total: 0 },
+      gradeDistribution: gradeDistribution.rows
     });
-  } catch (err) { res.status(500).json({ error: "Erreur serveur" }); }
+  } catch (err) {
+    console.error("Erreur Stats Admin:", err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
+// --- PERFORMANCE / STATS DÉTAILLÉES (Manquant dans la v1) ---
+router.get("/performance", isAuthenticated, hasPermission('view_logs'), async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                u.id, u.first_name, u.last_name, u.badge_number,
+                g.name as grade_name, g.color as grade_color,
+                (SELECT COUNT(*) FROM patients WHERE created_by = u.id) as patients_created,
+                (SELECT COUNT(*) FROM appointments WHERE assigned_medic_id = u.id AND status = 'completed') as appointments_completed,
+                (SELECT COUNT(*) FROM logs WHERE user_id = u.id) as total_actions
+            FROM users u
+            LEFT JOIN grades g ON u.grade_id = g.id
+            WHERE u.is_active = true
+            ORDER BY appointments_completed DESC
+        `;
+        const result = await pool.query(query);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: "Erreur performance" });
+    }
+});
+
+// --- LOGS SYSTÈME (Manquant dans la v1) ---
+router.get("/logs", isAuthenticated, hasPermission('view_logs'), async (req, res) => {
+    try {
+        const { limit = 100 } = req.query;
+        const result = await pool.query(`
+            SELECT l.*, u.first_name, u.last_name, u.badge_number 
+            FROM logs l 
+            LEFT JOIN users u ON l.user_id = u.id 
+            ORDER BY l.created_at DESC 
+            LIMIT $1
+        `, [limit]);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: "Erreur logs" });
+    }
+});
+
+// --- GRADES ---
+router.get("/grades", isAuthenticated, async (req, res) => {
+  const result = await pool.query("SELECT * FROM grades ORDER BY level ASC");
+  res.json(result.rows);
+});
+
+// --- UTILISATEURS (CRUD Complet) ---
 router.get("/users", isAuthenticated, isAdmin, async (req, res) => {
   const result = await pool.query(`SELECT u.*, g.name as grade_name FROM users u LEFT JOIN grades g ON u.grade_id = g.id ORDER BY u.id DESC`);
   res.json(result.rows);
@@ -26,13 +81,24 @@ router.get("/users", isAuthenticated, isAdmin, async (req, res) => {
 
 router.post("/users", isAuthenticated, isAdmin, async (req, res) => {
   try {
-    const { username, password, first_name, last_name, badge_number, grade_id } = req.body;
+    const { username, password, first_name, last_name, badge_number, grade_id, visible_grade_id } = req.body;
+    
+    // Vérification Hiérarchie (Identique EMS)
+    if (req.user.grade_level !== 99) {
+        const targetGrade = await pool.query("SELECT level FROM grades WHERE id = $1", [grade_id]);
+        if (targetGrade.rows.length > 0 && targetGrade.rows[0].level >= req.user.grade_level) {
+            return res.status(403).json({ error: "Grade trop élevé." });
+        }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    await pool.query(
-      `INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, is_active) VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-      [username, hashedPassword, first_name, last_name, badge_number, grade_id]
+    const visGrade = (visible_grade_id && visible_grade_id !== "") ? visible_grade_id : null;
+
+    const result = await pool.query(
+      `INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, visible_grade_id, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) RETURNING id`,
+      [username, hashedPassword, first_name, last_name, badge_number, grade_id, visGrade]
     );
-    await logAction(req.user.id, "CREATE_USER", `Ajout officier ${first_name} ${last_name}`, null);
+    await logAction(req.user.id, "CREATE_USER", `Ajout officier ${first_name} ${last_name}`, result.rows[0].id);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: "Erreur création" }); }
 });
@@ -42,11 +108,6 @@ router.delete("/users/:id", isAuthenticated, isAdmin, async (req, res) => {
   await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
   await logAction(req.user.id, "DELETE_USER", `Suppression utilisateur ID ${req.params.id}`, req.params.id);
   res.json({ success: true });
-});
-
-router.get("/grades", isAuthenticated, async (req, res) => {
-  const result = await pool.query("SELECT * FROM grades ORDER BY level ASC");
-  res.json(result.rows);
 });
 
 module.exports = router;
