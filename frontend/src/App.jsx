@@ -395,10 +395,20 @@ function Plaintes() {
   const [complaints, setComplaints] = useState([])
   const load = () => apiFetch("/api/appointments").then(r => r.json()).then(d => setComplaints(Array.isArray(d) ? d : [])).catch(() => setComplaints([]))
   useEffect(() => { load() }, [])
+  
   const handleStatus = async (id, action) => {
     await apiFetch(`/api/appointments/${id}/${action}`, { method: "POST" })
     load()
   }
+
+  // --- NOUVELLE FONCTION SUPPRIMER ---
+  const deleteComplaint = async (id) => {
+      if(window.confirm("Êtes-vous sûr de vouloir SUPPRIMER définitivement ce dossier ? Cette action est irréversible.")) {
+          await apiFetch(`/api/appointments/${id}`, { method: "DELETE" });
+          load();
+      }
+  }
+
   return (
     <Layout>
       <div className="flex justify-between items-center mb-8">
@@ -429,6 +439,11 @@ function Plaintes() {
                    {c.status === 'pending' && <button onClick={() => handleStatus(c.id, 'assign')} className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700">Prendre en charge</button>}
                    {c.status === 'assigned' && <button onClick={() => handleStatus(c.id, 'complete')} className="px-4 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg hover:bg-emerald-700">Clôturer</button>}
                    <button onClick={() => handleStatus(c.id, 'cancel')} className="px-4 py-2 bg-red-600/10 text-red-500 text-sm font-bold rounded-lg hover:bg-red-600/20">Refuser</button>
+                   
+                   {/* BOUTON SUPPRIMER (POUBELLE) */}
+                   <button onClick={() => deleteComplaint(c.id)} className="mt-2 text-slate-400 hover:text-red-500 transition-colors flex items-center justify-center" title="Supprimer définitivement">
+                       <Trash2 size={16}/>
+                   </button>
                 </div>
              )}
           </div>
