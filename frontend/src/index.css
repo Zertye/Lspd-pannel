@@ -1,23 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  /* LSPD LIGHT THEME */
   --bg-page: #f1f5f9;
-  --bg-card: #ffffff;
   --text-primary: #0f172a;
-  --accent-primary: #2563eb; /* Police Blue */
 }
-
 .dark {
-  /* LSPD DARK THEME (Par défaut) */
-  --bg-page: #0f172a; /* Slate 900 */
-  --bg-card: #1e293b; /* Slate 800 */
+  --bg-page: #0f172a;
   --text-primary: #f8fafc;
-  --accent-primary: #3b82f6;
 }
 
 body {
@@ -25,16 +16,5 @@ body {
   background-color: var(--bg-page);
   color: var(--text-primary);
 }
-
-/* Animations d'entrée */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 .animate-in { animation: fadeIn 0.4s ease-out forwards; }
-
-/* Scrollbar Custom */
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: #0f172a; }
-::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #475569; }
