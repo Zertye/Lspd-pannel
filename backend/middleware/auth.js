@@ -20,6 +20,7 @@ const PERMISSIONS = {
   DELETE_USERS: "delete_users",                  // Supprimer utilisateurs
   MANAGE_GRADES: "manage_grades",                // Modifier grades & permissions
   VIEW_LOGS: "view_logs",                        // Accès aux logs système
+  FORCE_END_SERVICE: "force_end_service",        // Forcer fin de service d'un officier
 };
 
 /**
@@ -39,6 +40,7 @@ const getFullUser = async (userId) => {
       u.profile_picture,
       u.grade_id,
       u.visible_grade_id,
+      u.total_patrol_time,
       COALESCE(vg.name, g.name) as grade_name,
       COALESCE(vg.color, g.color) as grade_color,
       g.level as grade_level,
