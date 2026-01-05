@@ -1,9 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Link, useNavigate } from "react-router-dom"
-import { createContext, useContext, useState, useEffect, useRef } from "react"
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
   CheckCircle, Send, Phone, Lock, AlertTriangle, FileText, Activity,
-  BarChart3, ScrollText, ChevronRight, UserPlus, User, Camera, Pencil, Trash2, Settings
+  BarChart3, ScrollText, ChevronRight, UserPlus, User, Camera, Pencil, Trash2, Settings,
+  Radio, PlayCircle, StopCircle, MapPin, Car, Clock, Star, Plus, MessageSquare,
+  AlertCircle, Siren, PhoneCall, Pin, ChevronDown, Crown, Headphones, UserCheck,
+  Timer, Zap, Navigation, CircleDot, RefreshCw
 } from "lucide-react"
 
 // ============================================================================
@@ -18,6 +21,25 @@ const PERMISSIONS_LIST = [
   { key: "delete_users", label: "Exclure Officiers", description: "Supprimer définitivement les officiers" },
   { key: "manage_grades", label: "Gérer Grades", description: "Modifier les grades et permissions" },
   { key: "view_logs", label: "Voir les Logs", description: "Accéder aux journaux d'audit" }
+];
+
+const PATROL_STATUSES = [
+  { id: 'available', label: 'Disponible', color: 'emerald', icon: CheckCircle },
+  { id: 'busy', label: 'Occupé', color: 'amber', icon: AlertCircle },
+  { id: 'emergency', label: 'Urgence', color: 'red', icon: Siren },
+  { id: 'break', label: 'Pause', color: 'slate', icon: Clock },
+  { id: 'offline', label: 'Hors service', color: 'gray', icon: X }
+];
+
+const CALL_TYPES = [
+  { id: 'vol', label: 'Vol / Cambriolage', priority: 1 },
+  { id: 'agression', label: 'Agression', priority: 2 },
+  { id: 'accident', label: 'Accident de la route', priority: 1 },
+  { id: 'tapage', label: 'Tapage / Nuisances', priority: 0 },
+  { id: 'suspect', label: 'Individu suspect', priority: 1 },
+  { id: 'poursuite', label: 'Course-poursuite', priority: 2 },
+  { id: 'arme', label: 'Arme à feu', priority: 2 },
+  { id: 'autre', label: 'Autre intervention', priority: 0 }
 ];
 
 // ============================================================================
@@ -143,12 +165,13 @@ const TextArea = ({ label, ...props }) => (
   </div>
 )
 
-const StatCard = ({ label, value, icon: Icon, color = "blue" }) => {
+const StatCard = ({ label, value, icon: Icon, color = "blue", subtitle }) => {
   const colors = {
     blue: { icon: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-600" },
     green: { icon: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30", border: "border-emerald-600" },
     yellow: { icon: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-600" },
     red: { icon: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30", border: "border-red-600" },
+    purple: { icon: "text-purple-600", bg: "bg-purple-100 dark:bg-purple-900/30", border: "border-purple-600" },
   }
   const c = colors[color] || colors.blue;
   return (
@@ -157,6 +180,7 @@ const StatCard = ({ label, value, icon: Icon, color = "blue" }) => {
         <div>
           <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
           <p className="text-3xl font-black text-slate-800 dark:text-white">{value}</p>
+          {subtitle && <p className="text-xs text-slate-400 mt-1">{subtitle}</p>}
         </div>
         <div className={`p-3 rounded-lg ${c.bg} ${c.icon}`}><Icon size={24}/></div>
       </div>
@@ -164,14 +188,32 @@ const StatCard = ({ label, value, icon: Icon, color = "blue" }) => {
   )
 }
 
-function SidebarItem({ icon: Icon, label, to, active }) {
+function SidebarItem({ icon: Icon, label, to, active, badge }) {
   return (
     <Link to={to} className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
       <Icon size={18} />
-      <span>{label}</span>
+      <span className="flex-1">{label}</span>
+      {badge && <span className="px-2 py-0.5 text-xs font-bold bg-red-500 text-white rounded-full">{badge}</span>}
     </Link>
   )
 }
+
+// Formatage du temps
+const formatDuration = (seconds) => {
+  if (!seconds || seconds < 0) return "0m";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+};
+
+const formatDurationLong = (seconds) => {
+  if (!seconds || seconds < 0) return "0 minutes";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours} heure${hours > 1 ? 's' : ''} ${minutes} min`;
+  return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+};
 
 // ============================================================================
 // LAYOUT
@@ -181,9 +223,26 @@ function Layout({ children }) {
   const location = useLocation()
   const [mobileMenu, setMobileMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const [serviceStatus, setServiceStatus] = useState(null)
   
   const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "", password: "", profile_picture: null })
   const fileInputRef = useRef(null)
+
+  // Vérifier le statut de service
+  useEffect(() => {
+    const checkService = async () => {
+      try {
+        const res = await apiFetch("/api/centrale/service/status")
+        if (res.ok) {
+          const data = await res.json()
+          setServiceStatus(data)
+        }
+      } catch (e) {}
+    }
+    checkService()
+    const interval = setInterval(checkService, 30000) // Refresh toutes les 30s
+    return () => clearInterval(interval)
+  }, [])
 
   const openProfile = () => {
     setProfileForm({
@@ -218,6 +277,7 @@ function Layout({ children }) {
   // Navigation basée sur les permissions
   const navs = [
     { icon: LayoutDashboard, label: "Dashboard", to: "/dashboard", perm: "access_dashboard" },
+    { icon: Radio, label: "Centrale", to: "/centrale", perm: "access_dashboard" },
     { icon: ClipboardList, label: "Plaintes", to: "/plaintes", perm: "access_dashboard" },
     { icon: Users, label: "Effectif LSPD", to: "/roster", perm: "view_roster" },
   ]
@@ -238,6 +298,23 @@ function Layout({ children }) {
             <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">MDT System</p>
           </div>
         </div>
+
+        {/* Statut de service */}
+        <div className="p-4 border-b border-slate-800">
+          {serviceStatus?.isOnDuty ? (
+            <div className="flex items-center gap-2 px-3 py-2 bg-emerald-900/30 border border-emerald-700/50 rounded-lg">
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+              <span className="text-emerald-400 text-xs font-bold uppercase">En service</span>
+              <span className="text-emerald-600 text-xs ml-auto">{formatDuration(serviceStatus.service?.current_duration)}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg">
+              <div className="w-2 h-2 bg-slate-500 rounded-full"></div>
+              <span className="text-slate-400 text-xs font-bold uppercase">Hors service</span>
+            </div>
+          )}
+        </div>
+
         <nav className="flex-1 p-4 space-y-1">
           {navs.filter(n => !n.perm || hasPerm(n.perm)).map(n => (
             <SidebarItem key={n.to} {...n} active={location.pathname === n.to} />
@@ -268,7 +345,12 @@ function Layout({ children }) {
             <Shield className="text-blue-600" size={24} />
             <span className="font-bold text-white">LSPD MDT</span>
           </div>
-          <button onClick={() => setMobileMenu(!mobileMenu)} className="text-white"><Menu/></button>
+          <div className="flex items-center gap-2">
+            {serviceStatus?.isOnDuty && (
+              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+            )}
+            <button onClick={() => setMobileMenu(!mobileMenu)} className="text-white"><Menu/></button>
+          </div>
         </header>
         
         {/* Menu Mobile */}
@@ -346,19 +428,23 @@ function Layout({ children }) {
 }
 
 // ============================================================================
-// PAGES
+// DASHBOARD
 // ============================================================================
 
 function Dashboard() {
   const { user, hasPerm } = useAuth()
   const [stats, setStats] = useState(null)
   const [myStats, setMyStats] = useState(null)
+  const [patrolTimes, setPatrolTimes] = useState([])
+  const [centraleStats, setCentraleStats] = useState(null)
 
   useEffect(() => {
     if (hasPerm('view_logs')) {
       apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
     }
     apiFetch("/api/users/me/stats").then(r => r.ok ? r.json() : null).then(setMyStats).catch(() => {})
+    apiFetch("/api/centrale/patrol-times").then(r => r.ok ? r.json() : []).then(setPatrolTimes).catch(() => [])
+    apiFetch("/api/centrale/stats").then(r => r.ok ? r.json() : null).then(setCentraleStats).catch(() => {})
   }, [])
 
   return (
@@ -367,6 +453,19 @@ function Dashboard() {
         <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">TABLEAU DE BORD</h1>
         <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
       </div>
+
+      {/* Stats Centrale */}
+      {centraleStats && (
+        <>
+          <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Centrale en direct</h2>
+          <div className="grid md:grid-cols-4 gap-4 mb-8">
+            <StatCard label="En Service" value={centraleStats.officersOnline} icon={UserCheck} color="green" />
+            <StatCard label="Patrouilles" value={centraleStats.activePatrols} icon={Car} color="blue" />
+            <StatCard label="Appels en cours" value={centraleStats.pendingCalls} icon={PhoneCall} color="yellow" />
+            <StatCard label="Services Aujourd'hui" value={centraleStats.todayServices} icon={Timer} color="purple" />
+          </div>
+        </>
+      )}
 
       <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Performance</h2>
       <div className="grid md:grid-cols-3 gap-6 mb-8">
@@ -390,7 +489,15 @@ function Dashboard() {
       <div className="grid lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Accès Rapide</h2>
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-2 gap-4 mb-6">
+            <Link to="/centrale" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-purple-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
+              <div className="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg text-purple-600"><Radio size={24}/></div>
+              <div>
+                <h3 className="font-bold text-slate-800 dark:text-white">Centrale</h3>
+                <p className="text-xs text-slate-500">Gestion des patrouilles</p>
+              </div>
+              <ChevronRight className="ml-auto text-slate-400"/>
+            </Link>
             <Link to="/plaintes" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
               <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><ClipboardList size={24}/></div>
               <div>
@@ -407,6 +514,52 @@ function Dashboard() {
               </div>
               <ChevronRight className="ml-auto text-slate-400"/>
             </Link>
+          </div>
+
+          {/* Temps de patrouille */}
+          <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+            <Timer size={20} className="text-blue-500"/>
+            Temps de Patrouille
+          </h2>
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Officier</th>
+                    <th className="px-4 py-3 text-left">Grade</th>
+                    <th className="px-4 py-3 text-right">Temps Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {patrolTimes.slice(0, 10).map((p, i) => (
+                    <tr key={p.id} className={i < 3 ? "bg-amber-50/50 dark:bg-amber-900/10" : ""}>
+                      <td className="px-4 py-3 font-medium flex items-center gap-2">
+                        {i === 0 && <Crown size={16} className="text-amber-500"/>}
+                        {i === 1 && <Star size={16} className="text-slate-400"/>}
+                        {i === 2 && <Star size={16} className="text-amber-700"/>}
+                        <span className="text-slate-800 dark:text-white">{p.first_name} {p.last_name}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 rounded text-xs font-medium" style={{backgroundColor: p.grade_color + '20', color: p.grade_color}}>
+                          {p.grade_name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono font-bold text-slate-600 dark:text-slate-300">
+                        {formatDurationLong(p.total_patrol_time || p.calculated_time || 0)}
+                      </td>
+                    </tr>
+                  ))}
+                  {patrolTimes.length === 0 && (
+                    <tr>
+                      <td colSpan="3" className="px-4 py-8 text-center text-slate-400">
+                        Aucune donnée de patrouille
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -430,6 +583,865 @@ function Dashboard() {
     </Layout>
   )
 }
+
+// ============================================================================
+// CENTRALE - PAGE PRINCIPALE
+// ============================================================================
+
+function Centrale() {
+  const { user } = useAuth()
+  const [serviceStatus, setServiceStatus] = useState(null)
+  const [onlineOfficers, setOnlineOfficers] = useState([])
+  const [patrols, setPatrols] = useState([])
+  const [notes, setNotes] = useState([])
+  const [dispatches, setDispatches] = useState([])
+  const [currentOperator, setCurrentOperator] = useState(null)
+  const [loading, setLoading] = useState(true)
+  
+  // Modals
+  const [showPatrolModal, setShowPatrolModal] = useState(false)
+  const [showDispatchModal, setShowDispatchModal] = useState(false)
+  const [showNoteModal, setShowNoteModal] = useState(false)
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [editingPatrol, setEditingPatrol] = useState(null)
+  const [selectedPatrol, setSelectedPatrol] = useState(null)
+  
+  // Forms
+  const [patrolForm, setPatrolForm] = useState({ name: '', call_sign: '', vehicle: '', sector: '', notes: '' })
+  const [dispatchForm, setDispatchForm] = useState({ call_type: '', location: '', description: '', priority: 0, patrol_id: '' })
+  const [noteForm, setNoteForm] = useState({ content: '', note_type: 'info', patrol_id: '', is_pinned: false })
+
+  const loadData = useCallback(async () => {
+    try {
+      const [statusRes, onlineRes, patrolsRes, notesRes, dispatchRes, operatorRes] = await Promise.all([
+        apiFetch("/api/centrale/service/status"),
+        apiFetch("/api/centrale/service/online"),
+        apiFetch("/api/centrale/patrols"),
+        apiFetch("/api/centrale/notes?limit=30"),
+        apiFetch("/api/centrale/dispatch?limit=20"),
+        apiFetch("/api/centrale/operator/current")
+      ])
+
+      if (statusRes.ok) setServiceStatus(await statusRes.json())
+      if (onlineRes.ok) {
+        const data = await onlineRes.json()
+        setOnlineOfficers(data.officers || [])
+      }
+      if (patrolsRes.ok) setPatrols(await patrolsRes.json())
+      if (notesRes.ok) setNotes(await notesRes.json())
+      if (dispatchRes.ok) setDispatches(await dispatchRes.json())
+      if (operatorRes.ok) {
+        const data = await operatorRes.json()
+        setCurrentOperator(data.operator)
+      }
+    } catch (e) {
+      console.error("Erreur chargement centrale:", e)
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(loadData, 15000) // Refresh toutes les 15s
+    return () => clearInterval(interval)
+  }, [loadData])
+
+  // Actions Service
+  const startService = async () => {
+    const res = await apiFetch("/api/centrale/service/start", { method: "POST" })
+    if (res.ok) loadData()
+    else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
+  }
+
+  const endService = async () => {
+    if (!window.confirm("Êtes-vous sûr de vouloir terminer votre service ?")) return
+    const res = await apiFetch("/api/centrale/service/end", { method: "POST" })
+    if (res.ok) loadData()
+    else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
+  }
+
+  // Actions Patrouilles
+  const openCreatePatrol = () => {
+    setPatrolForm({ name: '', call_sign: '', vehicle: '', sector: '', notes: '' })
+    setEditingPatrol(null)
+    setShowPatrolModal(true)
+  }
+
+  const openEditPatrol = (patrol) => {
+    setPatrolForm({
+      name: patrol.name,
+      call_sign: patrol.call_sign || '',
+      vehicle: patrol.vehicle || '',
+      sector: patrol.sector || '',
+      notes: patrol.notes || ''
+    })
+    setEditingPatrol(patrol)
+    setShowPatrolModal(true)
+  }
+
+  const savePatrol = async (e) => {
+    e.preventDefault()
+    const method = editingPatrol ? "PUT" : "POST"
+    const url = editingPatrol ? `/api/centrale/patrols/${editingPatrol.id}` : "/api/centrale/patrols"
+    
+    const res = await apiFetch(url, { method, body: JSON.stringify(patrolForm) })
+    if (res.ok) {
+      setShowPatrolModal(false)
+      loadData()
+    } else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
+  }
+
+  const deletePatrol = async (id) => {
+    if (!window.confirm("Supprimer cette patrouille ?")) return
+    const res = await apiFetch(`/api/centrale/patrols/${id}`, { method: "DELETE" })
+    if (res.ok) loadData()
+  }
+
+  const updatePatrolStatus = async (patrolId, status) => {
+    const res = await apiFetch(`/api/centrale/patrols/${patrolId}`, { 
+      method: "PUT", 
+      body: JSON.stringify({ status }) 
+    })
+    if (res.ok) loadData()
+  }
+
+  // Assignation
+  const openAssignModal = (patrol) => {
+    setSelectedPatrol(patrol)
+    setShowAssignModal(true)
+  }
+
+  const assignOfficer = async (userId) => {
+    const res = await apiFetch(`/api/centrale/patrols/${selectedPatrol.id}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) {
+      loadData()
+    } else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
+  }
+
+  const unassignOfficer = async (patrolId, userId) => {
+    const res = await apiFetch(`/api/centrale/patrols/${patrolId}/unassign`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) loadData()
+  }
+
+  const setLeader = async (patrolId, userId) => {
+    const res = await apiFetch(`/api/centrale/patrols/${patrolId}/leader`, {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) loadData()
+  }
+
+  // Opérateur
+  const assignOperator = async (userId) => {
+    const res = await apiFetch("/api/centrale/operator/assign", {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) loadData()
+    else {
+      const err = await res.json()
+      alert(err.error || "Erreur")
+    }
+  }
+
+  const removeOperator = async (userId) => {
+    const res = await apiFetch("/api/centrale/operator/remove", {
+      method: "POST",
+      body: JSON.stringify({ userId })
+    })
+    if (res.ok) loadData()
+  }
+
+  // Notes
+  const saveNote = async (e) => {
+    e.preventDefault()
+    const res = await apiFetch("/api/centrale/notes", { method: "POST", body: JSON.stringify(noteForm) })
+    if (res.ok) {
+      setShowNoteModal(false)
+      setNoteForm({ content: '', note_type: 'info', patrol_id: '', is_pinned: false })
+      loadData()
+    }
+  }
+
+  const deleteNote = async (id) => {
+    await apiFetch(`/api/centrale/notes/${id}`, { method: "DELETE" })
+    loadData()
+  }
+
+  const togglePinNote = async (id) => {
+    await apiFetch(`/api/centrale/notes/${id}/pin`, { method: "POST" })
+    loadData()
+  }
+
+  // Dispatch
+  const saveDispatch = async (e) => {
+    e.preventDefault()
+    const res = await apiFetch("/api/centrale/dispatch", { method: "POST", body: JSON.stringify(dispatchForm) })
+    if (res.ok) {
+      setShowDispatchModal(false)
+      setDispatchForm({ call_type: '', location: '', description: '', priority: 0, patrol_id: '' })
+      loadData()
+    }
+  }
+
+  const updateDispatchStatus = async (id, status) => {
+    await apiFetch(`/api/centrale/dispatch/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status })
+    })
+    loadData()
+  }
+
+  const assignDispatch = async (dispatchId, patrolId) => {
+    await apiFetch(`/api/centrale/dispatch/${dispatchId}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ patrol_id: patrolId })
+    })
+    loadData()
+  }
+
+  // Officiers disponibles (en service mais pas dans une patrouille)
+  const availableOfficers = onlineOfficers.filter(o => !o.patrol_id)
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center py-20">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </Layout>
+    )
+  }
+
+  // Si pas en service, afficher l'écran de prise de service
+  if (!serviceStatus?.isOnDuty) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mb-6 border-4 border-slate-700">
+            <Radio size={48} className="text-slate-500"/>
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white mb-2">CENTRALE LSPD</h1>
+          <p className="text-slate-500 mb-8 text-center max-w-md">
+            Vous devez prendre votre service pour accéder à la centrale et aux patrouilles.
+          </p>
+          <button 
+            onClick={startService}
+            className="flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-emerald-900/30"
+          >
+            <PlayCircle size={24}/>
+            PRENDRE SON SERVICE
+          </button>
+        </div>
+      </Layout>
+    )
+  }
+
+  const canManage = serviceStatus.canManageCentrale || user.grade_level === 99
+
+  return (
+    <Layout>
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+        <div>
+          <h1 className="text-3xl font-black text-slate-900 dark:text-white flex items-center gap-3">
+            <Radio className="text-purple-500"/>
+            CENTRALE
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">
+            {onlineOfficers.length} officier{onlineOfficers.length > 1 ? 's' : ''} en service • {patrols.length} patrouille{patrols.length > 1 ? 's' : ''} active{patrols.length > 1 ? 's' : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={loadData} className="p-2 bg-slate-200 dark:bg-slate-700 rounded-lg hover:opacity-80">
+            <RefreshCw size={20}/>
+          </button>
+          <button 
+            onClick={endService}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg"
+          >
+            <StopCircle size={18}/> Fin de service
+          </button>
+        </div>
+      </div>
+
+      {/* Info Service */}
+      <div className="bg-gradient-to-r from-emerald-900/30 to-blue-900/30 border border-emerald-700/30 rounded-xl p-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+            <div>
+              <p className="text-emerald-400 font-bold">En service depuis {formatDuration(serviceStatus.service?.current_duration)}</p>
+              {serviceStatus.patrol && (
+                <p className="text-sm text-slate-400">
+                  Patrouille: <span className="text-white font-medium">{serviceStatus.patrol.name}</span>
+                  {serviceStatus.patrol.call_sign && <span className="ml-2 text-blue-400">({serviceStatus.patrol.call_sign})</span>}
+                </p>
+              )}
+            </div>
+          </div>
+          {currentOperator && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-900/30 border border-purple-700/50 rounded-lg">
+              <Headphones size={16} className="text-purple-400"/>
+              <span className="text-purple-300 text-sm">
+                Centrale: <span className="font-bold text-white">{currentOperator.first_name} {currentOperator.last_name}</span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Colonne gauche: Officiers en service */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+              <Users size={20} className="text-blue-500"/>
+              En Service ({onlineOfficers.length})
+            </h2>
+          </div>
+
+          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+            {onlineOfficers.map(officer => (
+              <div 
+                key={officer.id} 
+                className={`bg-white dark:bg-slate-800 p-3 rounded-xl border ${
+                  officer.is_operator ? 'border-purple-500' : 
+                  officer.patrol_id ? 'border-blue-500/50' : 'border-slate-200 dark:border-slate-700'
+                } shadow-sm`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden ring-2" style={{ringColor: officer.grade_color}}>
+                    {officer.profile_picture ? (
+                      <img src={officer.profile_picture} className="w-full h-full object-cover"/>
+                    ) : (
+                      <span className="font-bold text-slate-500">{officer.first_name?.[0]}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-slate-800 dark:text-white text-sm truncate">
+                        {officer.first_name} {officer.last_name}
+                      </p>
+                      {officer.is_operator && <Headphones size={14} className="text-purple-400 flex-shrink-0"/>}
+                    </div>
+                    <p className="text-xs truncate" style={{color: officer.grade_color}}>{officer.grade_name}</p>
+                    {officer.patrol_name && (
+                      <p className="text-xs text-blue-400 truncate">{officer.patrol_call_sign || officer.patrol_name}</p>
+                    )}
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-mono text-slate-500">{formatDuration(officer.duration)}</p>
+                    {!officer.patrol_id && (
+                      <span className="text-xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded">
+                        Dispo
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {canManage && !officer.patrol_id && (
+                  <div className="flex gap-1 mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <button
+                      onClick={() => assignOperator(officer.id)}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-purple-600/20 text-purple-400 rounded hover:bg-purple-600/30"
+                    >
+                      <Headphones size={12}/> Centrale
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {onlineOfficers.length === 0 && (
+              <div className="text-center py-8 text-slate-400 bg-slate-800/50 rounded-xl border border-dashed border-slate-700">
+                Aucun officier en service
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Colonne centrale: Patrouilles */}
+        <div className="lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-lg text-slate-800 dark:text-white flex items-center gap-2">
+              <Car size={20} className="text-emerald-500"/>
+              Patrouilles
+            </h2>
+            {canManage && (
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowDispatchModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold rounded-lg"
+                >
+                  <Siren size={16}/> Appel
+                </button>
+                <button 
+                  onClick={() => setShowNoteModal(true)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-600 hover:bg-slate-700 text-white text-sm font-bold rounded-lg"
+                >
+                  <MessageSquare size={16}/> Note
+                </button>
+                <button 
+                  onClick={openCreatePatrol}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg"
+                >
+                  <Plus size={16}/> Patrouille
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Grille des patrouilles */}
+          <div className="grid md:grid-cols-2 gap-4 mb-6">
+            {patrols.map(patrol => {
+              const statusInfo = PATROL_STATUSES.find(s => s.id === patrol.status) || PATROL_STATUSES[0]
+              const StatusIcon = statusInfo.icon
+              
+              return (
+                <div 
+                  key={patrol.id} 
+                  className={`bg-white dark:bg-slate-800 rounded-xl border-2 ${
+                    patrol.status === 'emergency' ? 'border-red-500 animate-pulse' :
+                    patrol.status === 'busy' ? 'border-amber-500' :
+                    'border-slate-200 dark:border-slate-700'
+                  } shadow-sm overflow-hidden`}
+                >
+                  {/* Header */}
+                  <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-lg bg-${statusInfo.color}-100 dark:bg-${statusInfo.color}-900/30 flex items-center justify-center`}>
+                          <StatusIcon size={20} className={`text-${statusInfo.color}-600`}/>
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-800 dark:text-white">{patrol.name}</h3>
+                          {patrol.call_sign && (
+                            <p className="text-sm font-mono text-blue-500">{patrol.call_sign}</p>
+                          )}
+                        </div>
+                      </div>
+                      {canManage && (
+                        <div className="flex gap-1">
+                          <button onClick={() => openEditPatrol(patrol)} className="p-1.5 text-slate-400 hover:text-blue-500">
+                            <Pencil size={14}/>
+                          </button>
+                          <button onClick={() => deletePatrol(patrol.id)} className="p-1.5 text-slate-400 hover:text-red-500">
+                            <Trash2 size={14}/>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Infos */}
+                    <div className="flex flex-wrap gap-2 mt-3 text-xs">
+                      {patrol.vehicle && (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
+                          <Car size={12}/> {patrol.vehicle}
+                        </span>
+                      )}
+                      {patrol.sector && (
+                        <span className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
+                          <MapPin size={12}/> {patrol.sector}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Membres */}
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-slate-500 uppercase">Équipage ({patrol.member_count || 0})</span>
+                      {canManage && (
+                        <button 
+                          onClick={() => openAssignModal(patrol)}
+                          className="text-xs text-blue-500 hover:underline"
+                        >
+                          + Ajouter
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {patrol.members?.map(m => (
+                        <div key={m.id} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                          <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center overflow-hidden text-xs font-bold">
+                            {m.profile_picture ? (
+                              <img src={m.profile_picture} className="w-full h-full object-cover"/>
+                            ) : m.first_name?.[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-800 dark:text-white truncate flex items-center gap-1">
+                              {m.first_name} {m.last_name}
+                              {m.role === 'leader' && <Crown size={12} className="text-amber-500"/>}
+                            </p>
+                            <p className="text-xs truncate" style={{color: m.grade_color}}>{m.grade_name}</p>
+                          </div>
+                          {canManage && (
+                            <div className="flex gap-1">
+                              {m.role !== 'leader' && (
+                                <button 
+                                  onClick={() => setLeader(patrol.id, m.id)}
+                                  className="p-1 text-slate-400 hover:text-amber-500" title="Chef de patrouille"
+                                >
+                                  <Crown size={14}/>
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => unassignOfficer(patrol.id, m.id)}
+                                className="p-1 text-slate-400 hover:text-red-500" title="Retirer"
+                              >
+                                <X size={14}/>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {(!patrol.members || patrol.members.length === 0) && (
+                        <p className="text-xs text-slate-400 text-center py-2">Aucun membre</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status Actions */}
+                  {canManage && (
+                    <div className="px-4 pb-4">
+                      <div className="flex flex-wrap gap-1">
+                        {PATROL_STATUSES.filter(s => s.id !== 'offline').map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => updatePatrolStatus(patrol.id, s.id)}
+                            className={`flex-1 px-2 py-1.5 text-xs font-bold rounded transition-all ${
+                              patrol.status === s.id 
+                                ? `bg-${s.color}-600 text-white` 
+                                : `bg-${s.color}-100 dark:bg-${s.color}-900/20 text-${s.color}-600 hover:bg-${s.color}-200`
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Notes de patrouille */}
+                  {patrol.notes && (
+                    <div className="px-4 pb-4">
+                      <div className="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                        <p className="text-xs text-amber-700 dark:text-amber-400">{patrol.notes}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            {patrols.length === 0 && (
+              <div className="md:col-span-2 text-center py-12 text-slate-400 bg-slate-800/50 rounded-xl border border-dashed border-slate-700">
+                Aucune patrouille active
+                {canManage && (
+                  <button 
+                    onClick={openCreatePatrol}
+                    className="block mx-auto mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg"
+                  >
+                    Créer une patrouille
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Appels Dispatch */}
+          {dispatches.filter(d => !['completed', 'cancelled'].includes(d.status)).length > 0 && (
+            <div className="mb-6">
+              <h3 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+                <Siren size={18} className="text-red-500"/>
+                Appels en cours
+              </h3>
+              <div className="space-y-2">
+                {dispatches.filter(d => !['completed', 'cancelled'].includes(d.status)).map(d => (
+                  <div key={d.id} className={`p-3 rounded-lg border ${
+                    d.priority >= 2 ? 'bg-red-900/20 border-red-700' :
+                    d.priority === 1 ? 'bg-amber-900/20 border-amber-700' :
+                    'bg-slate-800 border-slate-700'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-white">{d.call_type}</p>
+                        <p className="text-sm text-slate-400">{d.location || 'Localisation inconnue'}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {d.patrol_name && (
+                          <span className="px-2 py-1 bg-blue-900/30 text-blue-400 text-xs rounded">
+                            {d.patrol_call_sign || d.patrol_name}
+                          </span>
+                        )}
+                        <span className={`px-2 py-1 text-xs rounded ${
+                          d.status === 'pending' ? 'bg-amber-500 text-black' :
+                          d.status === 'dispatched' ? 'bg-blue-500 text-white' :
+                          d.status === 'en_route' ? 'bg-purple-500 text-white' :
+                          'bg-emerald-500 text-white'
+                        }`}>
+                          {d.status === 'pending' ? 'En attente' :
+                           d.status === 'dispatched' ? 'Assigné' :
+                           d.status === 'en_route' ? 'En route' : 'Sur place'}
+                        </span>
+                      </div>
+                    </div>
+                    {canManage && (
+                      <div className="flex gap-2 mt-2">
+                        {d.status !== 'on_scene' && (
+                          <button 
+                            onClick={() => updateDispatchStatus(d.id, 
+                              d.status === 'pending' ? 'dispatched' : 
+                              d.status === 'dispatched' ? 'en_route' : 'on_scene'
+                            )}
+                            className="px-2 py-1 bg-blue-600 text-white text-xs rounded"
+                          >
+                            {d.status === 'pending' ? 'Assigner' : 
+                             d.status === 'dispatched' ? 'En route' : 'Sur place'}
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => updateDispatchStatus(d.id, 'completed')}
+                          className="px-2 py-1 bg-emerald-600 text-white text-xs rounded"
+                        >
+                          Terminé
+                        </button>
+                        <button 
+                          onClick={() => updateDispatchStatus(d.id, 'cancelled')}
+                          className="px-2 py-1 bg-slate-600 text-white text-xs rounded"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes Centrale */}
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+              <MessageSquare size={18} className="text-blue-500"/>
+              Journal de bord
+            </h3>
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="max-h-60 overflow-y-auto">
+                {notes.map(note => (
+                  <div key={note.id} className={`p-3 border-b border-slate-200 dark:border-slate-700 last:border-b-0 ${
+                    note.is_pinned ? 'bg-amber-50 dark:bg-amber-900/20' :
+                    note.note_type === 'urgent' ? 'bg-red-50 dark:bg-red-900/20' :
+                    note.note_type === 'warning' ? 'bg-amber-50 dark:bg-amber-900/20' : ''
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        note.note_type === 'urgent' ? 'bg-red-100 text-red-600' :
+                        note.note_type === 'warning' ? 'bg-amber-100 text-amber-600' :
+                        note.note_type === 'dispatch' ? 'bg-purple-100 text-purple-600' :
+                        'bg-blue-100 text-blue-600'
+                      }`}>
+                        {note.note_type === 'urgent' ? <AlertCircle size={14}/> :
+                         note.note_type === 'dispatch' ? <Siren size={14}/> :
+                         <MessageSquare size={14}/>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-800 dark:text-white">{note.content}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-slate-500">
+                            {note.author_first_name} {note.author_last_name}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {new Date(note.created_at).toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit'})}
+                          </span>
+                          {note.patrol_name && (
+                            <span className="text-xs px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded">
+                              {note.patrol_call_sign || note.patrol_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {canManage && (
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button onClick={() => togglePinNote(note.id)} className={`p-1 ${note.is_pinned ? 'text-amber-500' : 'text-slate-400'} hover:text-amber-500`}>
+                            <Pin size={14}/>
+                          </button>
+                          <button onClick={() => deleteNote(note.id)} className="p-1 text-slate-400 hover:text-red-500">
+                            <Trash2 size={14}/>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {notes.length === 0 && (
+                  <div className="p-8 text-center text-slate-400">
+                    Aucune note
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Patrouille */}
+      {showPatrolModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">
+              {editingPatrol ? 'Modifier Patrouille' : 'Nouvelle Patrouille'}
+            </h2>
+            <form onSubmit={savePatrol} className="space-y-3">
+              <InputField label="Nom de la patrouille" placeholder="Ex: Patrouille Centre" value={patrolForm.name} onChange={e => setPatrolForm({...patrolForm, name: e.target.value})} required />
+              <InputField label="Indicatif Radio" placeholder="Ex: ADAM-12" value={patrolForm.call_sign} onChange={e => setPatrolForm({...patrolForm, call_sign: e.target.value})} />
+              <InputField label="Véhicule" placeholder="Ex: Crown Victoria #42" value={patrolForm.vehicle} onChange={e => setPatrolForm({...patrolForm, vehicle: e.target.value})} />
+              <InputField label="Secteur" placeholder="Ex: Downtown, Vinewood..." value={patrolForm.sector} onChange={e => setPatrolForm({...patrolForm, sector: e.target.value})} />
+              <TextArea label="Notes" placeholder="Instructions particulières..." value={patrolForm.notes} onChange={e => setPatrolForm({...patrolForm, notes: e.target.value})} />
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowPatrolModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">
+                  {editingPatrol ? 'Enregistrer' : 'Créer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Assignation */}
+      {showAssignModal && selectedPatrol && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">
+              Assigner à {selectedPatrol.name}
+            </h2>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {availableOfficers.length > 0 ? (
+                availableOfficers.map(officer => (
+                  <button
+                    key={officer.id}
+                    onClick={() => { assignOfficer(officer.id); setShowAssignModal(false) }}
+                    className="w-full flex items-center gap-3 p-3 bg-slate-100 dark:bg-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-left"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center overflow-hidden">
+                      {officer.profile_picture ? (
+                        <img src={officer.profile_picture} className="w-full h-full object-cover"/>
+                      ) : (
+                        <span className="font-bold text-slate-500">{officer.first_name?.[0]}</span>
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-800 dark:text-white">{officer.first_name} {officer.last_name}</p>
+                      <p className="text-xs" style={{color: officer.grade_color}}>{officer.grade_name}</p>
+                    </div>
+                    <Plus className="ml-auto text-blue-500"/>
+                  </button>
+                ))
+              ) : (
+                <div className="text-center py-8 text-slate-400">
+                  Aucun officier disponible
+                </div>
+              )}
+            </div>
+            <button 
+              onClick={() => setShowAssignModal(false)} 
+              className="w-full mt-4 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg"
+            >
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Note */}
+      {showNoteModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Nouvelle Note</h2>
+            <form onSubmit={saveNote} className="space-y-3">
+              <TextArea label="Message" placeholder="Votre note..." value={noteForm.content} onChange={e => setNoteForm({...noteForm, content: e.target.value})} required />
+              <SelectField label="Type" value={noteForm.note_type} onChange={e => setNoteForm({...noteForm, note_type: e.target.value})}>
+                <option value="info">Information</option>
+                <option value="warning">Attention</option>
+                <option value="urgent">Urgent</option>
+                <option value="dispatch">Dispatch</option>
+              </SelectField>
+              <SelectField label="Patrouille (optionnel)" value={noteForm.patrol_id} onChange={e => setNoteForm({...noteForm, patrol_id: e.target.value})}>
+                <option value="">-- Toutes --</option>
+                {patrols.map(p => <option key={p.id} value={p.id}>{p.call_sign || p.name}</option>)}
+              </SelectField>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={noteForm.is_pinned} onChange={e => setNoteForm({...noteForm, is_pinned: e.target.checked})} className="rounded"/>
+                <span className="text-sm text-slate-600 dark:text-slate-300">Épingler cette note</span>
+              </label>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowNoteModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Publier</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Dispatch */}
+      {showDispatchModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl shadow-2xl">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Nouvel Appel</h2>
+            <form onSubmit={saveDispatch} className="space-y-3">
+              <SelectField label="Type d'appel" value={dispatchForm.call_type} onChange={e => {
+                const callType = CALL_TYPES.find(c => c.label === e.target.value)
+                setDispatchForm({...dispatchForm, call_type: e.target.value, priority: callType?.priority || 0})
+              }} required>
+                <option value="">Sélectionner...</option>
+                {CALL_TYPES.map(c => <option key={c.id} value={c.label}>{c.label}</option>)}
+              </SelectField>
+              <InputField label="Localisation" placeholder="Ex: Legion Square, Alta Street..." value={dispatchForm.location} onChange={e => setDispatchForm({...dispatchForm, location: e.target.value})} />
+              <TextArea label="Description" placeholder="Détails de l'appel..." value={dispatchForm.description} onChange={e => setDispatchForm({...dispatchForm, description: e.target.value})} />
+              <SelectField label="Priorité" value={dispatchForm.priority} onChange={e => setDispatchForm({...dispatchForm, priority: parseInt(e.target.value)})}>
+                <option value="0">Normale</option>
+                <option value="1">Prioritaire</option>
+                <option value="2">Urgence</option>
+              </SelectField>
+              <SelectField label="Assigner à (optionnel)" value={dispatchForm.patrol_id} onChange={e => setDispatchForm({...dispatchForm, patrol_id: e.target.value})}>
+                <option value="">-- Non assigné --</option>
+                {patrols.filter(p => p.status === 'available').map(p => (
+                  <option key={p.id} value={p.id}>{p.call_sign || p.name}</option>
+                ))}
+              </SelectField>
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowDispatchModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                <button type="submit" className="flex-1 py-2 bg-amber-600 text-white font-bold rounded-lg hover:bg-amber-700">Créer l'appel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </Layout>
+  )
+}
+
+// ============================================================================
+// PLAINTES
+// ============================================================================
 
 function Plaintes() {
   const { hasPerm } = useAuth()
@@ -457,7 +1469,6 @@ function Plaintes() {
     }
   }
 
-  // Suppression définitive - nécessite permission delete_appointments
   const deleteComplaint = async (id) => {
     if (!hasPerm('delete_appointments')) {
       alert("Vous n'avez pas la permission de supprimer des plaintes")
@@ -513,7 +1524,6 @@ function Plaintes() {
               </div>
               
               <div className="flex md:flex-col gap-2 pt-4 md:pt-0 md:pl-4 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-700 justify-center items-center">
-                {/* Actions selon le statut et les permissions */}
                 {hasPerm('manage_appointments') && (
                   <>
                     {c.status === 'pending' && (
@@ -534,7 +1544,6 @@ function Plaintes() {
                   </>
                 )}
                 
-                {/* Bouton supprimer - Permission séparée */}
                 {hasPerm('delete_appointments') && (
                   <button 
                     onClick={() => deleteComplaint(c.id)} 
@@ -557,6 +1566,10 @@ function Plaintes() {
     </Layout>
   )
 }
+
+// ============================================================================
+// ROSTER
+// ============================================================================
 
 function Roster() {
   const [members, setMembers] = useState([])
@@ -618,6 +1631,10 @@ function Roster() {
   )
 }
 
+// ============================================================================
+// ADMIN (Version simplifiée pour garder le code court)
+// ============================================================================
+
 function Admin() {
   const { user, hasPerm } = useAuth()
   const [activeTab, setActiveTab] = useState("users")
@@ -629,7 +1646,6 @@ function Admin() {
   const [isEditing, setIsEditing] = useState(false)
   const [editingId, setEditingId] = useState(null)
   
-  // Grade Editing
   const [gradeModal, setGradeModal] = useState(false)
   const [editingGrade, setEditingGrade] = useState(null)
   const [gradeForm, setGradeForm] = useState({ name: "", color: "", permissions: {} })
@@ -649,12 +1665,10 @@ function Admin() {
     if(activeTab === 'performance' && hasPerm('view_logs')) {
       apiFetch("/api/admin/performance").then(r => r.ok ? r.json() : []).then(setPerformance);
     }
-    // Toujours charger les grades pour les selects
     apiFetch("/api/admin/grades").then(r => r.ok ? r.json() : []).then(setGrades);
   }
   useEffect(() => { load() }, [activeTab])
 
-  // Users Management
   const openCreateModal = () => {
     setForm({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" });
     setIsEditing(false);
@@ -711,7 +1725,6 @@ function Admin() {
     }
   }
 
-  // Grades Management
   const editGrade = (g) => {
     if (!hasPerm('manage_grades')) {
       alert("Permission refusée")
@@ -748,7 +1761,6 @@ function Admin() {
     }));
   }
 
-  // Filtrer les tabs selon les permissions
   const allTabs = [
     { id: "users", label: "Utilisateurs", icon: Users, perm: "manage_users" },
     { id: "grades", label: "Grades & Perms", icon: Settings, perm: "manage_grades" },
@@ -757,7 +1769,6 @@ function Admin() {
   ]
   const tabs = allTabs.filter(t => hasPerm(t.perm))
 
-  // Rediriger vers le premier tab disponible si le tab actuel n'est pas accessible
   useEffect(() => {
     if (tabs.length > 0 && !tabs.find(t => t.id === activeTab)) {
       setActiveTab(tabs[0].id)
@@ -779,7 +1790,6 @@ function Admin() {
       </div>
 
       <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-        {/* TAB USERS */}
         {activeTab === "users" && hasPerm('manage_users') && (
           <>
             <div className="p-4 border-b dark:border-slate-700 flex justify-end">
@@ -831,7 +1841,6 @@ function Admin() {
           </>
         )}
         
-        {/* TAB GRADES */}
         {activeTab === "grades" && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -868,7 +1877,6 @@ function Admin() {
           </div>
         )}
 
-        {/* TAB LOGS */}
         {activeTab === "logs" && hasPerm('view_logs') && (
           <div className="max-h-[500px] overflow-y-auto">
             <table className="w-full text-sm text-left">
@@ -902,7 +1910,6 @@ function Admin() {
           </div>
         )}
         
-        {/* TAB PERFORMANCE */}
         {activeTab === "performance" && hasPerm('view_logs') && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -927,7 +1934,7 @@ function Admin() {
         )}
       </div>
 
-      {/* MODAL UTILISATEUR */}
+      {/* Modal Utilisateur */}
       {showModal && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl">
@@ -972,7 +1979,7 @@ function Admin() {
         </div>
       )}
 
-      {/* MODAL GRADES & PERMISSIONS */}
+      {/* Modal Grades */}
       {gradeModal && editingGrade && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl max-h-[90vh] overflow-y-auto">
@@ -1181,6 +2188,7 @@ export default function App() {
             <Route path="/plainte" element={<PublicComplaint />} />
             <Route path="/login" element={<Login />} />
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/centrale" element={<ProtectedRoute><Centrale /></ProtectedRoute>} />
             <Route path="/plaintes" element={<ProtectedRoute><Plaintes /></ProtectedRoute>} />
             <Route path="/roster" element={<ProtectedRoute><Roster /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
