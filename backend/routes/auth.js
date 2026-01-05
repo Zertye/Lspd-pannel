@@ -6,9 +6,20 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "lspd-secret";
 
 const getFullUser = async (userId) => {
+  // Mise à jour pour supporter le "Grade Visible" (RP) comme dans passport.js
   const result = await pool.query(`
-    SELECT u.*, g.name as grade_name, g.color as grade_color, g.level as grade_level, g.permissions as grade_permissions
-    FROM users u LEFT JOIN grades g ON u.grade_id = g.id WHERE u.id = $1
+    SELECT 
+      u.id, u.username, u.first_name, u.last_name, u.badge_number, u.is_admin, u.profile_picture, u.visible_grade_id,
+      -- Si un grade visible est défini, on l'affiche, sinon on affiche le vrai grade
+      COALESCE(vg.name, g.name) as grade_name,
+      COALESCE(vg.color, g.color) as grade_color,
+      -- On garde TOUJOURS le vrai niveau pour les permissions
+      g.level as grade_level,
+      g.permissions as grade_permissions
+    FROM users u 
+    LEFT JOIN grades g ON u.grade_id = g.id 
+    LEFT JOIN grades vg ON u.visible_grade_id = vg.id
+    WHERE u.id = $1
   `, [userId]);
   return result.rows[0];
 };
