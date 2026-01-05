@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, Link, useNavigate 
 import { createContext, useContext, useState, useEffect } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
-  CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity
+  CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity,
+  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus
 } from "lucide-react"
 
 // --- Theme Context ---
@@ -22,15 +23,6 @@ function ThemeProvider({ children }) {
   }, [theme])
   const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark')
   return <ThemeContext.Provider value={{ theme, toggleTheme }}>{children}</ThemeContext.Provider>
-}
-
-function ThemeToggle() {
-  const { theme, toggleTheme } = useTheme()
-  return (
-    <button onClick={toggleTheme} className="p-2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-yellow-400 hover:scale-105 transition-all">
-      {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-    </button>
-  )
 }
 
 // --- Auth Context ---
@@ -117,6 +109,27 @@ const TextArea = ({ label, ...props }) => (
   </div>
 )
 
+const StatCard = ({ label, value, icon: Icon, color = "blue" }) => {
+    const colors = {
+      blue: { icon: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/30", border: "border-blue-600" },
+      green: { icon: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/30", border: "border-emerald-600" },
+      yellow: { icon: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-900/30", border: "border-amber-600" },
+      red: { icon: "text-red-600", bg: "bg-red-100 dark:bg-red-900/30", border: "border-red-600" },
+    }
+    const c = colors[color] || colors.blue;
+    return (
+      <div className={`bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 ${c.border} shadow-sm`}>
+         <div className="flex justify-between items-start">
+            <div>
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+               <p className="text-3xl font-black text-slate-800 dark:text-white">{value}</p>
+            </div>
+            <div className={`p-3 rounded-lg ${c.bg} ${c.icon}`}><Icon size={24}/></div>
+         </div>
+      </div>
+    )
+}
+
 function Layout({ children }) {
   const { user, logout, hasPerm } = useAuth()
   const location = useLocation()
@@ -193,45 +206,87 @@ function Layout({ children }) {
 }
 
 function Dashboard() {
-  const { user } = useAuth()
+  const { user, hasPerm } = useAuth()
   const [stats, setStats] = useState(null)
+  const [myStats, setMyStats] = useState(null)
+
   useEffect(() => {
-    apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
+    // Stats Admin si permission
+    if (hasPerm('view_logs')) {
+        apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
+    }
+    // Stats Perso (TOUJOURS)
+    apiFetch("/api/users/me/stats").then(r => r.ok ? r.json() : null).then(setMyStats).catch(() => {})
   }, [])
+
   return (
     <Layout>
       <div className="mb-8">
         <h1 className="text-3xl font-black text-slate-900 dark:text-white mb-2">TABLEAU DE BORD</h1>
         <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
       </div>
+
+      {/* Stats Personnelles */}
+      <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Performance</h2>
       <div className="grid md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-600 shadow-sm">
-           <div className="flex justify-between items-start">
-              <div>
-                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Effectif Total</p>
-                 <p className="text-3xl font-black text-slate-800 dark:text-white">{stats?.users?.total || "..."}</p>
-              </div>
-              <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><Shield size={24}/></div>
-           </div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-amber-500 shadow-sm">
-           <div className="flex justify-between items-start">
-              <div>
-                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Plaintes en attente</p>
-                 <p className="text-3xl font-black text-slate-800 dark:text-white">{stats?.appointments?.pending || "..."}</p>
-              </div>
-              <div className="p-3 bg-amber-100 dark:bg-amber-900/30 rounded-lg text-amber-600"><AlertTriangle size={24}/></div>
-           </div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-emerald-500 shadow-sm">
-           <div className="flex justify-between items-start">
-              <div>
-                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Statut Service</p>
-                 <p className="text-lg font-bold text-emerald-600 mt-1">OPÉRATIONNEL</p>
-              </div>
-              <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><CheckCircle size={24}/></div>
-           </div>
-        </div>
+        <StatCard label="Mes Dossiers" value={myStats?.my_appointments || "0"} icon={ClipboardList} color="blue" />
+        <StatCard label="Civils Contrôlés" value={myStats?.my_patients || "0"} icon={Users} color="green" />
+        <StatCard label="Activité" value="En Service" icon={CheckCircle} color="yellow" />
+      </div>
+
+      {/* Stats Globales (Si Admin) */}
+      {stats && (
+        <>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Vue Globale</h2>
+            <div className="grid md:grid-cols-4 gap-6 mb-8">
+                <StatCard label="Effectif" value={stats.users?.total || 0} icon={Shield} color="blue" />
+                <StatCard label="Plaintes" value={stats.appointments?.pending || 0} icon={AlertTriangle} color="yellow" />
+                <StatCard label="Civils" value={stats.patients?.total || 0} icon={Users} color="blue" />
+                <StatCard label="Rapports" value={stats.reports?.total || 0} icon={FileText} color="green" />
+            </div>
+        </>
+      )}
+
+      {/* Layout Grid Complexe comme EMS */}
+      <div className="grid lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+             <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Accès Rapide</h2>
+             <div className="grid md:grid-cols-2 gap-4">
+                <Link to="/plaintes" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-blue-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
+                    <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg text-blue-600"><ClipboardList size={24}/></div>
+                    <div>
+                        <h3 className="font-bold text-slate-800 dark:text-white">Gérer Plaintes</h3>
+                        <p className="text-xs text-slate-500">Traiter les demandes</p>
+                    </div>
+                    <ChevronRight className="ml-auto text-slate-400"/>
+                </Link>
+                <Link to="/roster" className="bg-white dark:bg-slate-800 p-6 rounded-xl border-l-4 border-emerald-500 shadow-sm flex items-center gap-4 hover:scale-105 transition-transform cursor-pointer">
+                    <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600"><Users size={24}/></div>
+                    <div>
+                        <h3 className="font-bold text-slate-800 dark:text-white">Effectif</h3>
+                        <p className="text-xs text-slate-500">Voir les officiers</p>
+                    </div>
+                    <ChevronRight className="ml-auto text-slate-400"/>
+                </Link>
+             </div>
+          </div>
+
+          <div>
+             <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Dernières Activités</h2>
+             <div className="space-y-3">
+                {myStats?.recent_activity?.length > 0 ? (
+                    myStats.recent_activity.map(a => (
+                        <div key={a.id} className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm text-sm">
+                            <div className="font-bold text-slate-800 dark:text-white">{a.title}</div>
+                            <div className="text-slate-500 text-xs mb-1">{a.patient_name}</div>
+                            <div className="text-xs text-slate-400 text-right">{new Date(a.date).toLocaleDateString()}</div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="text-center p-6 text-slate-400 bg-white dark:bg-slate-800 rounded-xl border border-dashed border-slate-300 dark:border-slate-700">Aucune activité récente</div>
+                )}
+             </div>
+          </div>
       </div>
     </Layout>
   )
@@ -264,7 +319,6 @@ function Plaintes() {
                 <p className="text-slate-500 text-sm mb-3">{c.description}</p>
                 <div className="flex gap-4 text-xs text-slate-400 font-mono">
                    <span className="flex items-center gap-1"><Phone size={12}/> {c.patient_phone || "N/A"}</span>
-                   <span className="flex items-center gap-1"><Users size={12}/> {c.patient_discord || "N/A"}</span>
                 </div>
              </div>
              {c.status !== 'completed' && hasPerm('manage_appointments') && (
@@ -276,7 +330,6 @@ function Plaintes() {
              )}
           </div>
         ))}
-        {complaints.length === 0 && <div className="text-center p-12 text-slate-400 font-medium">Aucune plainte</div>}
       </div>
     </Layout>
   )
@@ -294,9 +347,7 @@ function Roster() {
   }, {});
   return (
     <Layout>
-      <div className="mb-8">
-         <h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1>
-      </div>
+      <div className="mb-8"><h1 className="text-3xl font-black text-slate-900 dark:text-white">EFFECTIFS LSPD</h1></div>
       <div className="space-y-8">
          {order.map(cat => grouped[cat] && (
             <div key={cat}>
@@ -323,13 +374,25 @@ function Roster() {
 }
 
 function Admin() {
-  const { user } = useAuth()
+  const { user, hasPerm } = useAuth()
+  const [activeTab, setActiveTab] = useState("users")
   const [users, setUsers] = useState([])
-  const [showModal, setShowModal] = useState(false)
   const [grades, setGrades] = useState([])
+  const [logs, setLogs] = useState([])
+  const [performance, setPerformance] = useState([])
+  const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "" })
-  const load = () => { apiFetch("/api/admin/users").then(r => r.json()).then(setUsers); apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades) }
-  useEffect(() => { load() }, [])
+
+  const load = () => { 
+      if(activeTab === 'users') apiFetch("/api/admin/users").then(r => r.json()).then(setUsers);
+      if(activeTab === 'grades') apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades);
+      if(activeTab === 'logs') apiFetch("/api/admin/logs").then(r => r.json()).then(setLogs);
+      if(activeTab === 'performance') apiFetch("/api/admin/performance").then(r => r.json()).then(setPerformance);
+      // Toujours charger les grades pour le formulaire
+      apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades);
+  }
+  useEffect(() => { load() }, [activeTab])
+
   const submitUser = async (e) => {
     e.preventDefault()
     await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
@@ -337,29 +400,80 @@ function Admin() {
     load()
   }
   const deleteUser = async (id) => { if(window.confirm("Renvoyer cet officier ?")) { await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" }); load() } }
+
+  const tabs = [
+      { id: "users", label: "Utilisateurs", icon: Users },
+      { id: "grades", label: "Grades", icon: ShieldAlert },
+      { id: "logs", label: "Logs", icon: ScrollText },
+      { id: "performance", label: "Performance", icon: BarChart3 }
+  ]
+
   return (
     <Layout>
       <div className="flex justify-between items-center mb-8">
          <h1 className="text-3xl font-black text-slate-900 dark:text-white">ADMINISTRATION</h1>
-         <button onClick={() => setShowModal(true)} className="px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Ajouter Officier</button>
       </div>
+
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {tabs.map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === t.id ? "bg-blue-600 text-white" : "bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-100"}`}>
+                  <t.icon size={16}/> {t.label}
+              </button>
+          ))}
+      </div>
+
       <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-         <table className="w-full text-sm text-left">
-            <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500">
-               <tr><th className="px-6 py-4">Officier</th><th className="px-6 py-4">Grade</th><th className="px-6 py-4">Matricule</th><th className="px-6 py-4 text-right">Actions</th></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-               {users.map(u => (
-                  <tr key={u.id}>
-                     <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{u.first_name} {u.last_name}</td>
-                     <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
-                     <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
-                     <td className="px-6 py-4 text-right">{u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 hover:text-red-700 font-bold">Exclure</button>}</td>
-                  </tr>
-               ))}
-            </tbody>
-         </table>
+         {activeTab === "users" && (
+             <>
+             <div className="p-4 border-b dark:border-slate-700 flex justify-end"><button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-bold"><UserPlus size={16}/> Ajouter</button></div>
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500"><tr><th className="px-6 py-4">Officier</th><th className="px-6 py-4">Grade</th><th className="px-6 py-4">Matricule</th><th className="px-6 py-4 text-right">Actions</th></tr></thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                   {users.map(u => (
+                      <tr key={u.id}>
+                         <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{u.first_name} {u.last_name}</td>
+                         <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
+                         <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
+                         <td className="px-6 py-4 text-right">{u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="text-red-500 font-bold">Exclure</button>}</td>
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
+             </>
+         )}
+         {activeTab === "logs" && (
+             <div className="max-h-[500px] overflow-y-auto">
+                 <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500 sticky top-0"><tr><th className="px-6 py-4">Date</th><th className="px-6 py-4">Utilisateur</th><th className="px-6 py-4">Action</th><th className="px-6 py-4">Détails</th></tr></thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                       {logs.map((l, i) => (
+                          <tr key={i}>
+                             <td className="px-6 py-4 text-slate-500">{new Date(l.created_at).toLocaleDateString()} {new Date(l.created_at).toLocaleTimeString()}</td>
+                             <td className="px-6 py-4 font-bold">{l.first_name} {l.last_name}</td>
+                             <td className="px-6 py-4"><span className="badge bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-xs">{l.action}</span></td>
+                             <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{l.details}</td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+             </div>
+         )}
+         {activeTab === "performance" && (
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500"><tr><th className="px-6 py-4">Officier</th><th className="px-6 py-4 text-center">Plaintes Traitées</th><th className="px-6 py-4 text-center">Actions Totales</th></tr></thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                   {performance.map((p, i) => (
+                      <tr key={i}>
+                         <td className="px-6 py-4 font-bold text-slate-800 dark:text-white">{p.first_name} {p.last_name}</td>
+                         <td className="px-6 py-4 text-center font-mono font-bold text-emerald-500">{p.appointments_completed}</td>
+                         <td className="px-6 py-4 text-center font-mono">{p.total_actions}</td>
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
+         )}
       </div>
+
       {showModal && (
          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 w-full max-w-md p-6 rounded-xl">
@@ -401,7 +515,7 @@ function PublicComplaint() {
      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
         <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center text-white mb-6"><CheckCircle size={40}/></div>
         <h1 className="text-3xl font-black text-white mb-2">Plainte Enregistrée</h1>
-        <p className="text-slate-400 mb-8 max-w-md">Votre déclaration a bien été transmise aux services du LSPD. Un officier prendra contact avec vous rapidement.</p>
+        <p className="text-slate-400 mb-8 max-w-md">Votre déclaration a bien été transmise aux services du LSPD.</p>
         <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-700">Retour accueil</button>
      </div>
   )
