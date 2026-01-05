@@ -3,8 +3,19 @@ import { createContext, useContext, useState, useEffect, useRef } from "react"
 import { 
   Shield, Users, ClipboardList, ShieldAlert, LogOut, LayoutDashboard, Menu, X, 
   CheckCircle, Send, Phone, Sun, Moon, Lock, AlertTriangle, FileText, Activity,
-  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus, User, Camera, Pencil, Trash2
+  BarChart3, ScrollText, RefreshCw, ChevronRight, UserPlus, User, Camera, Pencil, Trash2, Key, Settings
 } from "lucide-react"
+
+// --- CONSTANTES ---
+const PERMISSIONS_LIST = [
+    { key: "access_dashboard", label: "Accès Dashboard" },
+    { key: "view_roster", label: "Voir Effectifs" },
+    { key: "manage_appointments", label: "Gérer Plaintes" },
+    { key: "manage_users", label: "Gérer Utilisateurs (Bas niveau)" },
+    { key: "delete_users", label: "Expulser Officiers" },
+    { key: "manage_grades", label: "Gérer Grades & Permissions" },
+    { key: "view_logs", label: "Voir les Logs" }
+];
 
 // --- Theme Context ---
 const ThemeContext = createContext(null)
@@ -81,7 +92,6 @@ function AuthProvider({ children }) {
     window.location.href = "/";
   }
   
-  // refreshUser exposé pour mettre à jour l'UI après modif profil
   const hasPerm = (perm) => user?.grade_level === 99 || user?.is_admin || user?.grade_permissions?.[perm] === true;
 
   return (
@@ -147,11 +157,9 @@ function Layout({ children }) {
   const [mobileMenu, setMobileMenu] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   
-  // État pour le formulaire de profil
   const [profileForm, setProfileForm] = useState({ first_name: "", last_name: "", phone: "", password: "", profile_picture: null })
   const fileInputRef = useRef(null)
 
-  // Ouvrir la modale profil avec les données actuelles
   const openProfile = () => {
       setProfileForm({
           first_name: user.first_name || "",
@@ -163,7 +171,6 @@ function Layout({ children }) {
       setShowProfile(true)
   }
 
-  // Sauvegarder le profil
   const saveProfile = async (e) => {
       e.preventDefault()
       const formData = new FormData()
@@ -175,7 +182,7 @@ function Layout({ children }) {
       
       const res = await apiFetch("/api/users/me", { method: "PUT", body: formData })
       if(res.ok) {
-          await refreshUser() // Rafraîchir les données utilisateur globales
+          await refreshUser()
           setShowProfile(false)
       } else {
           alert("Erreur lors de la mise à jour")
@@ -187,7 +194,7 @@ function Layout({ children }) {
     { icon: ClipboardList, label: "Plaintes", to: "/plaintes" },
     { icon: Users, label: "Effectif LSPD", to: "/roster" },
   ]
-  if (hasPerm('manage_users')) navs.push({ icon: ShieldAlert, label: "Administration", to: "/admin" })
+  if (hasPerm('manage_users') || hasPerm('view_logs')) navs.push({ icon: ShieldAlert, label: "Administration", to: "/admin" })
 
   return (
     <div className="min-h-screen flex bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-sans">
@@ -205,7 +212,6 @@ function Layout({ children }) {
           ))}
         </nav>
         
-        {/* SECTION PROFIL UTILISATEUR EN BAS */}
         <div className="p-4 bg-slate-950 border-t border-slate-800">
           <button onClick={openProfile} className="flex items-center gap-3 mb-3 w-full text-left hover:bg-slate-900 p-2 rounded-lg transition-colors group">
             <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white border-2 border-slate-700 overflow-hidden">
@@ -308,11 +314,9 @@ function Dashboard() {
   const [myStats, setMyStats] = useState(null)
 
   useEffect(() => {
-    // Stats Admin si permission (Total effectif, etc.)
     if (hasPerm('view_logs')) {
         apiFetch("/api/admin/stats").then(r => r.ok ? r.json() : null).then(setStats).catch(() => {})
     }
-    // Stats Perso (Toujours chargé : Mes dossiers, etc.)
     apiFetch("/api/users/me/stats").then(r => r.ok ? r.json() : null).then(setMyStats).catch(() => {})
   }, [])
 
@@ -323,7 +327,6 @@ function Dashboard() {
         <p className="text-slate-500 font-medium">Bienvenue, {user?.grade_name} {user?.last_name}. Prêt pour le service ?</p>
       </div>
 
-      {/* Stats Personnelles */}
       <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Ma Performance</h2>
       <div className="grid md:grid-cols-3 gap-6 mb-8">
         <StatCard label="Dossiers Traités" value={myStats?.my_appointments || "0"} icon={ClipboardList} color="blue" />
@@ -331,7 +334,6 @@ function Dashboard() {
         <StatCard label="Statut" value="En Service" icon={CheckCircle} color="yellow" />
       </div>
 
-      {/* Stats Globales (Si Admin/Haut Gradé) */}
       {stats && (
         <>
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Vue Globale Commandement</h2>
@@ -344,7 +346,6 @@ function Dashboard() {
         </>
       )}
 
-      {/* Layout Grid */}
       <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
              <h2 className="font-bold text-lg text-slate-800 dark:text-white mb-4">Accès Rapide</h2>
@@ -492,7 +493,11 @@ function Admin() {
   const [isEditing, setIsEditing] = useState(false)
   const [editingId, setEditingId] = useState(null)
   
-  // Formulaire pour créer/modifier un utilisateur
+  // Grade Editing
+  const [gradeModal, setGradeModal] = useState(false)
+  const [editingGrade, setEditingGrade] = useState(null)
+  const [gradeForm, setGradeForm] = useState({ name: "", color: "", permissions: {} })
+
   const [form, setForm] = useState({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" })
 
   const load = () => { 
@@ -500,12 +505,11 @@ function Admin() {
       if(activeTab === 'grades') apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades);
       if(activeTab === 'logs') apiFetch("/api/admin/logs").then(r => r.json()).then(setLogs);
       if(activeTab === 'performance') apiFetch("/api/admin/performance").then(r => r.json()).then(setPerformance);
-      // Toujours charger les grades pour le formulaire
       apiFetch("/api/admin/grades").then(r => r.json()).then(setGrades);
   }
   useEffect(() => { load() }, [activeTab])
 
-  // Ouvrir la modale en mode Création
+  // --- USERS MANAGEMENT ---
   const openCreateModal = () => {
       setForm({ username: "", password: "", first_name: "", last_name: "", badge_number: "", grade_id: "", visible_grade_id: "" });
       setIsEditing(false);
@@ -513,11 +517,10 @@ function Admin() {
       setShowModal(true);
   }
 
-  // Ouvrir la modale en mode Modification
   const openEditModal = (u) => {
       setForm({ 
           username: u.username, 
-          password: "", // Laisser vide si on ne change pas
+          password: "", 
           first_name: u.first_name, 
           last_name: u.last_name, 
           badge_number: u.badge_number, 
@@ -531,37 +534,48 @@ function Admin() {
 
   const submitUser = async (e) => {
     e.preventDefault()
-    
-    // Mode Modification vs Création
     if (isEditing) {
-        // Pour modifier, il faudrait idéalement une route PUT /api/admin/users/:id
-        // Comme elle n'est pas encore créée dans ce fichier unique, on va utiliser la création pour l'instant
-        // ou vous pouvez ajouter la route PUT correspondante côté backend.
-        // NOTE: Pour que ça marche SANS changer le backend maintenant, il faut que le backend supporte l'update ou qu'on supprime/recrée (mauvaise pratique).
-        
-        // Mais attendez, j'ai vu que vous vouliez juste l'UI.
-        // Si la route PUT n'existe pas, il faut l'ajouter au backend.
-        // Comme je ne peux modifier que ce fichier ici, je vais supposer que vous ajouterez la route PUT /users/:id au backend
-        // ou utiliser une astuce (mais le backend est requis).
-        
-        // J'envoie une requête PUT (Assurez-vous d'avoir la route backend correspondante !)
-        // Si vous n'avez pas la route, il faudra modifier backend/routes/admin.js aussi.
-        // Pour l'instant, je mets le code frontend correct.
         await apiFetch(`/api/admin/users/${editingId}`, { method: "PUT", body: JSON.stringify(form) })
-        
     } else {
         await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(form) })
     }
-    
     setShowModal(false)
     load()
   }
   
   const deleteUser = async (id) => { if(window.confirm("Renvoyer cet officier ?")) { await apiFetch(`/api/admin/users/${id}`, { method: "DELETE" }); load() } }
 
+  // --- GRADES MANAGEMENT ---
+  const editGrade = (g) => {
+      setEditingGrade(g);
+      setGradeForm({
+          name: g.name,
+          color: g.color,
+          permissions: g.permissions || {}
+      });
+      setGradeModal(true);
+  }
+
+  const saveGrade = async (e) => {
+      e.preventDefault();
+      await apiFetch(`/api/admin/grades/${editingGrade.id}`, { method: "PUT", body: JSON.stringify(gradeForm) });
+      setGradeModal(false);
+      load();
+  }
+
+  const togglePerm = (permKey) => {
+      setGradeForm(prev => ({
+          ...prev,
+          permissions: {
+              ...prev.permissions,
+              [permKey]: !prev.permissions[permKey]
+          }
+      }));
+  }
+
   const tabs = [
       { id: "users", label: "Utilisateurs", icon: Users },
-      { id: "grades", label: "Grades", icon: ShieldAlert },
+      { id: "grades", label: "Grades & Perms", icon: Settings },
       { id: "logs", label: "Logs", icon: ScrollText },
       { id: "performance", label: "Performance", icon: BarChart3 }
   ]
@@ -593,16 +607,8 @@ function Admin() {
                          <td className="px-6 py-4"><span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-medium text-xs">{u.grade_name}</span></td>
                          <td className="px-6 py-4 font-mono text-slate-500">{u.badge_number}</td>
                          <td className="px-6 py-4 text-right flex justify-end gap-2">
-                            {/* Bouton Modifier */}
-                            <button onClick={() => openEditModal(u)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Modifier">
-                                <Pencil size={16} />
-                            </button>
-                            {/* Bouton Supprimer */}
-                            {u.id !== user.id && (
-                                <button onClick={() => deleteUser(u.id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Exclure">
-                                    <Trash2 size={16} />
-                                </button>
-                            )}
+                            <button onClick={() => openEditModal(u)} className="p-2 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors" title="Modifier"><Pencil size={16} /></button>
+                            {u.id !== user.id && <button onClick={() => deleteUser(u.id)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors" title="Exclure"><Trash2 size={16} /></button>}
                          </td>
                       </tr>
                    ))}
@@ -610,6 +616,30 @@ function Admin() {
              </table>
              </>
          )}
+         
+         {activeTab === "grades" && (
+             <table className="w-full text-sm text-left">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-xs uppercase font-bold text-slate-500"><tr><th className="px-6 py-4">Grade</th><th className="px-6 py-4">Niveau</th><th className="px-6 py-4">Permissions (Aperçu)</th><th className="px-6 py-4 text-right">Modifier</th></tr></thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                   {grades.map(g => (
+                      <tr key={g.id}>
+                         <td className="px-6 py-4 font-bold flex items-center gap-3">
+                             <div className="w-3 h-3 rounded-full" style={{background: g.color}}></div>
+                             <span className="text-slate-800 dark:text-white">{g.name}</span>
+                         </td>
+                         <td className="px-6 py-4 font-mono text-slate-500">{g.level}</td>
+                         <td className="px-6 py-4 text-xs text-slate-500 max-w-xs truncate">
+                             {Object.keys(g.permissions || {}).filter(k => g.permissions[k]).length} droits actifs
+                         </td>
+                         <td className="px-6 py-4 text-right">
+                            <button onClick={() => editGrade(g)} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-xs font-bold">Permissions</button>
+                         </td>
+                      </tr>
+                   ))}
+                </tbody>
+             </table>
+         )}
+
          {activeTab === "logs" && (
              <div className="max-h-[500px] overflow-y-auto">
                  <table className="w-full text-sm text-left">
@@ -643,6 +673,7 @@ function Admin() {
          )}
       </div>
 
+      {/* MODAL UTILISATEUR */}
       {showModal && (
          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl">
@@ -685,6 +716,43 @@ function Admin() {
                </form>
             </div>
          </div>
+      )}
+
+      {/* MODAL GRADES & PERMISSIONS */}
+      {gradeModal && editingGrade && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 w-full max-w-lg p-6 rounded-xl shadow-2xl">
+               <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-4">Configuration: {editingGrade.name}</h2>
+               <form onSubmit={saveGrade} className="space-y-4">
+                   <div className="grid grid-cols-2 gap-4">
+                       <InputField label="Nom du Grade" value={gradeForm.name} onChange={e => setGradeForm({...gradeForm, name: e.target.value})} />
+                       <InputField label="Couleur (Hex)" type="color" className="h-10 p-1" value={gradeForm.color} onChange={e => setGradeForm({...gradeForm, color: e.target.value})} />
+                   </div>
+                   
+                   <div className="pt-2 border-t dark:border-slate-700">
+                       <p className="text-xs font-bold text-slate-500 uppercase mb-3">Permissions d'accès</p>
+                       <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                           {PERMISSIONS_LIST.map(p => (
+                               <label key={p.key} className="flex items-center gap-3 p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 cursor-pointer">
+                                   <input 
+                                     type="checkbox" 
+                                     checked={!!gradeForm.permissions[p.key]} 
+                                     onChange={() => togglePerm(p.key)}
+                                     className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                   />
+                                   <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{p.label}</span>
+                               </label>
+                           ))}
+                       </div>
+                   </div>
+
+                   <div className="flex gap-3 pt-4">
+                     <button type="button" onClick={() => setGradeModal(false)} className="flex-1 py-2 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-white font-bold rounded-lg">Annuler</button>
+                     <button type="submit" className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700">Sauvegarder</button>
+                   </div>
+               </form>
+            </div>
+          </div>
       )}
     </Layout>
   )
