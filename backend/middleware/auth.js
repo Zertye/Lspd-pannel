@@ -1,7 +1,15 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../config/database");
 
-const JWT_SECRET = process.env.JWT_SECRET || "lspd-secret";
+// ============================================================================
+// SÉCURITÉ: JWT_SECRET OBLIGATOIRE
+// ============================================================================
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error("❌ FATAL: JWT_SECRET non défini dans les variables d'environnement!");
+  console.error("   Définissez JWT_SECRET avant de démarrer le serveur.");
+  process.exit(1);
+}
 
 // ============================================================================
 // SYSTÈME DE PERMISSIONS LSPD - VERSION SÉCURISÉE
@@ -23,30 +31,35 @@ const PERMISSIONS = {
  * Récupère les informations complètes d'un utilisateur avec ses permissions
  */
 const getFullUser = async (userId) => {
-  const result = await pool.query(`
-    SELECT 
-      u.id, 
-      u.username, 
-      u.first_name, 
-      u.last_name, 
-      u.badge_number, 
-      u.phone,
-      u.is_admin, 
-      u.is_active,
-      u.profile_picture,
-      u.grade_id,
-      u.visible_grade_id,
-      u.total_patrol_time,
-      COALESCE(vg.name, g.name) as grade_name,
-      COALESCE(vg.color, g.color) as grade_color,
-      g.level as grade_level,
-      g.permissions as grade_permissions
-    FROM users u
-    LEFT JOIN grades g ON u.grade_id = g.id
-    LEFT JOIN grades vg ON u.visible_grade_id = vg.id
-    WHERE u.id = $1
-  `, [userId]);
-  return result.rows[0] || null;
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id, 
+        u.username, 
+        u.first_name, 
+        u.last_name, 
+        u.badge_number, 
+        u.phone,
+        u.is_admin, 
+        u.is_active,
+        u.profile_picture,
+        u.grade_id,
+        u.visible_grade_id,
+        u.total_patrol_time,
+        COALESCE(vg.name, g.name) as grade_name,
+        COALESCE(vg.color, g.color) as grade_color,
+        g.level as grade_level,
+        g.permissions as grade_permissions
+      FROM users u
+      LEFT JOIN grades g ON u.grade_id = g.id
+      LEFT JOIN grades vg ON u.visible_grade_id = vg.id
+      WHERE u.id = $1
+    `, [userId]);
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("❌ Erreur getFullUser:", err);
+    return null;
+  }
 };
 
 /**
@@ -54,7 +67,6 @@ const getFullUser = async (userId) => {
  */
 const extractUser = async (req, res, next) => {
   try {
-    // 1. Essayer le token JWT (Header Authorization)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith("Bearer ")) {
       const token = authHeader.substring(7);
@@ -65,10 +77,12 @@ const extractUser = async (req, res, next) => {
           req.user = user;
         }
       } catch (e) {
-        // Token invalide, on continue (user restera undefined)
+        // Token invalide ou expiré, on continue sans user
+        if (e.name === 'TokenExpiredError') {
+          // Token expiré - le client devra se reconnecter
+        }
       }
     }
-
     next();
   } catch (err) {
     console.error("❌ Erreur extractUser:", err);
