@@ -2308,9 +2308,6 @@ function PublicComplaint() {
           </SelectField>
           <TextArea label="Description des faits" placeholder="Decrivez ce qui s est passe..." value={form.description} onChange={function(e) { setForm({...form, description: e.target.value}) }} required />
           <div className="pt-4 flex gap-3">
-            <Button type="button" variant="secondary" onClick={function() { navigate("/") }} className="flex-1">
-              Annuler
-            </Button>
             <Button type="submit" disabled={loading} className="flex-1">
               {loading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
