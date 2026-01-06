@@ -57,14 +57,6 @@ const initDatabase = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-
-      -- Table des sessions
-      CREATE TABLE IF NOT EXISTS session (
-        sid VARCHAR NOT NULL PRIMARY KEY, 
-        sess JSON NOT NULL, 
-        expire TIMESTAMP(6) NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_session_expire ON session(expire);
       
       -- Tables legacy (compatibilité)
       CREATE TABLE IF NOT EXISTS patients (
@@ -85,7 +77,6 @@ const initDatabase = async () => {
     // ========================================================================
     // TABLE LOGS - Création avec contrainte ON DELETE SET NULL correcte
     // ========================================================================
-    // Vérifier si la table logs existe
     const logsExists = await client.query(`
       SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'logs')
     `);
@@ -107,25 +98,7 @@ const initDatabase = async () => {
         CREATE INDEX idx_logs_action ON logs(action);
         CREATE INDEX idx_logs_created ON logs(created_at DESC);
       `);
-      console.log("  → Table logs créée avec contrainte ON DELETE SET NULL");
-    } else {
-      // Vérifier et corriger la contrainte si nécessaire
-      try {
-        // Supprimer l'ancienne contrainte si elle existe
-        await client.query(`
-          ALTER TABLE logs DROP CONSTRAINT IF EXISTS logs_user_id_fkey
-        `);
-        // Recréer avec ON DELETE SET NULL
-        await client.query(`
-          ALTER TABLE logs 
-          ADD CONSTRAINT logs_user_id_fkey 
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        `);
-        console.log("  → Contrainte logs.user_id mise à jour avec ON DELETE SET NULL");
-      } catch (e) {
-        // Ignorer si la contrainte ne peut pas être modifiée
-        console.log("  → Note: Contrainte logs.user_id déjà configurée");
-      }
+      console.log("  → Table logs créée");
     }
 
     // ========================================================================
@@ -143,7 +116,6 @@ const initDatabase = async () => {
       }
     };
 
-    // Colonnes potentiellement manquantes
     await addColumnIfNotExists('appointments', 'completed_by_id', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
     await addColumnIfNotExists('grades', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
     await addColumnIfNotExists('logs', 'target_type', 'VARCHAR(50)');
@@ -158,90 +130,30 @@ const initDatabase = async () => {
     if (parseInt(gradesExist.rows[0].count) === 0) {
       console.log("🔹 Initialisation des grades LSPD...");
       
-      // Définition des permissions par niveau
       const permSets = {
-        // Officiers de base: Dashboard + Effectifs seulement
-        officer: {
-          access_dashboard: true,
-          view_roster: true,
-          manage_appointments: false,
-          delete_appointments: false,
-          manage_users: false,
-          delete_users: false,
-          manage_grades: false,
-          view_logs: false
-        },
-        // SLO / Sergents: + Gestion des plaintes
-        supervisor: {
-          access_dashboard: true,
-          view_roster: true,
-          manage_appointments: true,
-          delete_appointments: false,
-          manage_users: false,
-          delete_users: false,
-          manage_grades: false,
-          view_logs: false
-        },
-        // Capitaines: + Gestion utilisateurs + Logs
-        command: {
-          access_dashboard: true,
-          view_roster: true,
-          manage_appointments: true,
-          delete_appointments: true,
-          manage_users: true,
-          delete_users: false,
-          manage_grades: false,
-          view_logs: true
-        },
-        // High Command: + Suppression utilisateurs
-        highCommand: {
-          access_dashboard: true,
-          view_roster: true,
-          manage_appointments: true,
-          delete_appointments: true,
-          manage_users: true,
-          delete_users: true,
-          manage_grades: false,
-          view_logs: true
-        },
-        // Dev: Toutes permissions (mais géré par level 99 dans le code)
-        dev: {
-          access_dashboard: true,
-          view_roster: true,
-          manage_appointments: true,
-          delete_appointments: true,
-          manage_users: true,
-          delete_users: true,
-          manage_grades: true,
-          view_logs: true
-        }
+        officer: { access_dashboard: true, view_roster: true, manage_appointments: false, delete_appointments: false, manage_users: false, delete_users: false, manage_grades: false, view_logs: false },
+        supervisor: { access_dashboard: true, view_roster: true, manage_appointments: true, delete_appointments: false, manage_users: false, delete_users: false, manage_grades: false, view_logs: false },
+        command: { access_dashboard: true, view_roster: true, manage_appointments: true, delete_appointments: true, manage_users: true, delete_users: false, manage_grades: false, view_logs: true },
+        highCommand: { access_dashboard: true, view_roster: true, manage_appointments: true, delete_appointments: true, manage_users: true, delete_users: true, manage_grades: false, view_logs: true },
+        dev: { access_dashboard: true, view_roster: true, manage_appointments: true, delete_appointments: true, manage_users: true, delete_users: true, manage_grades: true, view_logs: true }
       };
 
       await client.query(`
         INSERT INTO grades (name, category, level, color, permissions) VALUES
-        -- Officers (1-5)
         ('Officier (Rookie)', 'Officers', 1, '#93c5fd', $1),
         ('Officier I', 'Officers', 2, '#60a5fa', $1),
         ('Officier II', 'Officers', 3, '#3b82f6', $1),
         ('Officier III', 'Officers', 4, '#2563eb', $1),
         ('Senior Lead Officer', 'Officers', 5, '#1d4ed8', $2),
-        
-        -- Supervisors (6-7)
         ('Sergent I', 'Supervisors', 6, '#f59e0b', $2),
         ('Sergent II', 'Supervisors', 7, '#d97706', $2),
-        
-        -- Command Staff (8-10)
         ('Capitaine I', 'Command Staff', 8, '#cbd5e1', $3),
         ('Capitaine II', 'Command Staff', 9, '#94a3b8', $3),
         ('Capitaine III', 'Command Staff', 10, '#64748b', $3),
-        
-        -- High Command (11-14)
         ('Commander', 'High Command', 11, '#475569', $4),
         ('Deputy Chief', 'High Command', 12, '#334155', $4),
         ('Assistant Chief', 'High Command', 13, '#1e293b', $4),
         ('Chief of Police', 'High Command', 14, '#0f172a', $4),
-        
-        -- Système (99)
         ('Développeur', 'Système', 99, '#7c3aed', $5)
       `, [
         JSON.stringify(permSets.officer),
@@ -250,29 +162,23 @@ const initDatabase = async () => {
         JSON.stringify(permSets.highCommand),
         JSON.stringify(permSets.dev)
       ]);
-
-      console.log("✅ Grades LSPD initialisés");
     }
 
     // ========================================================================
-    // 4. CRÉATION COMPTE DEV PAR DÉFAUT (si aucun utilisateur)
+    // 4. CRÉATION COMPTE DEV PAR DÉFAUT
     // ========================================================================
     const usersExist = await client.query("SELECT COUNT(*) FROM users");
     
     if (parseInt(usersExist.rows[0].count) === 0) {
       console.log("🔹 Création du compte administrateur par défaut...");
-      
       const devGrade = await client.query("SELECT id FROM grades WHERE level = 99");
       if (devGrade.rows.length > 0) {
         const hashedPassword = await bcrypt.hash("admin123", 10);
-        
         await client.query(`
           INSERT INTO users (username, password, first_name, last_name, badge_number, grade_id, is_admin, is_active)
           VALUES ($1, $2, $3, $4, $5, $6, TRUE, TRUE)
         `, ["admin", hashedPassword, "Admin", "LSPD", "DEV-001", devGrade.rows[0].id]);
-        
         console.log("✅ Compte admin créé (login: admin / mdp: admin123)");
-        console.log("⚠️  CHANGEZ CE MOT DE PASSE EN PRODUCTION !");
       }
     }
 
