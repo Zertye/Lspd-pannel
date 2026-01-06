@@ -49,18 +49,36 @@ const startServer = async () => {
       }
     }));
 
-    // Patch pour Passport 0.6+ - ajouter les méthodes manquantes à la session
+    // Patch ROBUSTE pour Passport 0.6+ - ajouter les méthodes manquantes à la session
+    // Ce patch doit s'exécuter AVANT passport.initialize()
     app.use((req, res, next) => {
-      if (req.session && !req.session.regenerate) {
+      // Si pas de session, en créer une factice pour éviter les crashes
+      if (!req.session) {
+        req.session = {};
+      }
+      
+      // Toujours ajouter regenerate si manquant
+      if (typeof req.session.regenerate !== 'function') {
         req.session.regenerate = (cb) => {
-          if (typeof cb === 'function') cb();
+          if (typeof cb === 'function') cb(null);
         };
       }
-      if (req.session && !req.session.save) {
+      
+      // Toujours ajouter save si manquant
+      if (typeof req.session.save !== 'function') {
         req.session.save = (cb) => {
-          if (typeof cb === 'function') cb();
+          if (typeof cb === 'function') cb(null);
         };
       }
+      
+      // Toujours ajouter destroy si manquant
+      if (typeof req.session.destroy !== 'function') {
+        req.session.destroy = (cb) => {
+          req.session = null;
+          if (typeof cb === 'function') cb(null);
+        };
+      }
+      
       next();
     });
 
