@@ -9,6 +9,7 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "lspd-secret";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
 
+// --- LOGIN ---
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -58,6 +59,7 @@ router.post("/login", async (req, res) => {
     await logAction(user.id, "LOGIN_SUCCESS", "Connexion reussie", "auth", user.id, req);
     console.log("[AUTH] Connexion OK pour", user.username);
 
+    // Gestion de la session (si Passport/Express-session est utilisé)
     if (req.logIn && req.session) {
       if (!req.session.regenerate) {
         req.session.regenerate = (cb) => cb();
@@ -81,6 +83,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// --- ME (Get current user) ---
 router.get("/me", async (req, res) => {
   try {
     let userId = null;
@@ -123,6 +126,7 @@ router.get("/me", async (req, res) => {
   }
 });
 
+// --- LOGOUT ---
 router.post("/logout", async (req, res) => {
   try {
     if (req.user && req.user.id) {
@@ -148,6 +152,7 @@ router.post("/logout", async (req, res) => {
   }
 });
 
+// --- VERIFY TOKEN ---
 router.get("/verify", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -176,6 +181,7 @@ router.get("/verify", async (req, res) => {
   }
 });
 
+// --- DEBUG ---
 router.get("/debug/users", async (req, res) => {
   try {
     const result = await pool.query(
