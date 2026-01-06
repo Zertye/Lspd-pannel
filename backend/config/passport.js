@@ -3,30 +3,16 @@ const LocalStrategy = require("passport-local").Strategy;
 const bcrypt = require("bcrypt");
 const pool = require("./database");
 
+// Sérialisation factice (Stateless)
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 
-passport.deserializeUser(async (id, done) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        u.id, u.username, u.first_name, u.last_name, u.badge_number, u.is_admin, u.profile_picture, u.visible_grade_id,
-        COALESCE(vg.name, g.name) as grade_name,
-        COALESCE(vg.color, g.color) as grade_color,
-        g.level as grade_level,
-        g.permissions as grade_permissions
-      FROM users u
-      LEFT JOIN grades g ON u.grade_id = g.id
-      LEFT JOIN grades vg ON u.visible_grade_id = vg.id
-      WHERE u.id = $1
-    `, [id]);
-    done(null, result.rows[0] || null);
-  } catch (err) {
-    done(err, null);
-  }
+passport.deserializeUser((id, done) => {
+  done(null, null);
 });
 
+// Stratégie locale (Optionnelle si vous n'utilisez pas passport.authenticate('local'))
 passport.use(new LocalStrategy(async (username, password, done) => {
   try {
     const result = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
