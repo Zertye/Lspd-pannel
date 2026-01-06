@@ -5,16 +5,16 @@ const path = require("path");
 const fs = require("fs");
 const passport = require("passport");
 
-// ============================================================================
-// SÉCURITÉ: Dépendances optionnelles (installer si besoin)
-// npm install express-rate-limit helmet compression
-// ============================================================================
 let rateLimit, helmet, compression;
 try { rateLimit = require("express-rate-limit"); } catch (e) { console.warn("⚠️ express-rate-limit non installé"); }
 try { helmet = require("helmet"); } catch (e) { console.warn("⚠️ helmet non installé"); }
 try { compression = require("compression"); } catch (e) { console.warn("⚠️ compression non installé"); }
 
 const app = express();
+
+// ✅ IMPORTANT: Faire confiance au proxy (Railway, Render, Heroku, etc.)
+app.set('trust proxy', 1);
+
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === "production";
 
