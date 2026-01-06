@@ -49,6 +49,21 @@ const startServer = async () => {
       }
     }));
 
+    // Patch pour Passport 0.6+ - ajouter les méthodes manquantes à la session
+    app.use((req, res, next) => {
+      if (req.session && !req.session.regenerate) {
+        req.session.regenerate = (cb) => {
+          if (typeof cb === 'function') cb();
+        };
+      }
+      if (req.session && !req.session.save) {
+        req.session.save = (cb) => {
+          if (typeof cb === 'function') cb();
+        };
+      }
+      next();
+    });
+
     app.use(passport.initialize());
     app.use(passport.session());
     
