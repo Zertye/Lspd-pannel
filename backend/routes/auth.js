@@ -9,22 +9,16 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "lspd-secret";
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "7d";
 
-// ============================================================================
-// CONNEXION
-// ============================================================================
 router.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Validation
     if (!username || !password) {
       return res.status(400).json({ error: "Identifiant et mot de passe requis" });
     }
 
-    // Debug: Log la tentative de connexion
-    console.log("Tentative de connexion:", username);
+    console.log("[AUTH] Tentative de connexion:", username);
 
-    // Recherche utilisateur (insensible a la casse, trim des espaces)
     const cleanUsername = username.trim().toLowerCase();
     
     const result = await pool.query(
@@ -32,45 +26,38 @@ router.post("/login", async (req, res) => {
       [cleanUsername]
     );
 
-    // Debug: Log le resultat
-    console.log("Utilisateurs trouves:", result.rows.length);
+    console.log("[AUTH] Utilisateurs trouves:", result.rows.length);
 
     if (result.rows.length === 0) {
-      await logAction(null, "LOGIN_FAILED", "Tentative connexion echouee - Identifiant inconnu: " + username, "auth", null, req);
+      await logAction(null, "LOGIN_FAILED", "Identifiant inconnu: " + username, "auth", null, req);
       return res.status(401).json({ error: "Identifiant inconnu" });
     }
 
     const user = result.rows[0];
-    console.log("Utilisateur trouve:", user.first_name, user.last_name, "ID:", user.id);
+    console.log("[AUTH] Utilisateur:", user.first_name, user.last_name);
 
-    // Verification mot de passe
     const passwordValid = await bcrypt.compare(password, user.password);
     if (!passwordValid) {
-      await logAction(user.id, "LOGIN_FAILED", "Tentative connexion echouee - Mot de passe incorrect", "auth", user.id, req);
+      await logAction(user.id, "LOGIN_FAILED", "Mot de passe incorrect", "auth", user.id, req);
       return res.status(401).json({ error: "Mot de passe incorrect" });
     }
 
-    // Verification compte actif
     if (!user.is_active) {
-      await logAction(user.id, "LOGIN_FAILED", "Tentative connexion echouee - Compte desactive", "auth", user.id, req);
+      await logAction(user.id, "LOGIN_FAILED", "Compte desactive", "auth", user.id, req);
       return res.status(401).json({ error: "Compte suspendu" });
     }
 
-    // Generation token JWT
     const token = jwt.sign(
       { id: user.id, username: user.username },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRY }
     );
 
-    // Recuperation donnees completes
     const fullUser = await getFullUser(user.id);
 
-    // Log connexion reussie
     await logAction(user.id, "LOGIN_SUCCESS", "Connexion reussie", "auth", user.id, req);
-    console.log("Connexion reussie pour", user.username);
+    console.log("[AUTH] Connexion OK pour", user.username);
 
-    // Support session Passport (optionnel)
     if (req.logIn && req.session) {
       if (!req.session.regenerate) {
         req.session.regenerate = (cb) => cb();
@@ -79,7 +66,7 @@ router.post("/login", async (req, res) => {
         req.session.save = (cb) => cb();
       }
       req.logIn(user, (err) => {
-        if (err) console.error("Passport session error:", err);
+        if (err) console.error("[AUTH] Passport error:", err);
       });
     }
 
@@ -89,24 +76,19 @@ router.post("/login", async (req, res) => {
       user: fullUser
     });
   } catch (err) {
-    console.error("Erreur Login:", err);
+    console.error("[AUTH] Erreur Login:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// ============================================================================
-// RECUPERATION UTILISATEUR COURANT
-// ============================================================================
 router.get("/me", async (req, res) => {
   try {
     let userId = null;
 
-    // 1. Essayer depuis req.user (deja extrait par middleware)
     if (req.user && req.user.id) {
       userId = req.user.id;
     }
 
-    // 2. Essayer depuis le header Authorization
     if (!userId && req.headers.authorization) {
       const authHeader = req.headers.authorization;
       if (authHeader.startsWith("Bearer ")) {
@@ -136,14 +118,11 @@ router.get("/me", async (req, res) => {
 
     res.json({ user });
   } catch (err) {
-    console.error("Erreur /me:", err);
+    console.error("[AUTH] Erreur /me:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// ============================================================================
-// DECONNEXION
-// ============================================================================
 router.post("/logout", async (req, res) => {
   try {
     if (req.user && req.user.id) {
@@ -152,26 +131,23 @@ router.post("/logout", async (req, res) => {
 
     if (req.logout) {
       req.logout((err) => {
-        if (err) console.error("Logout error:", err);
+        if (err) console.error("[AUTH] Logout error:", err);
       });
     }
 
     if (req.session && req.session.destroy) {
       req.session.destroy((err) => {
-        if (err) console.error("Session destroy error:", err);
+        if (err) console.error("[AUTH] Session destroy error:", err);
       });
     }
 
     res.json({ success: true, message: "Deconnexion reussie" });
   } catch (err) {
-    console.error("Erreur Logout:", err);
+    console.error("[AUTH] Erreur Logout:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
 
-// ============================================================================
-// VERIFICATION TOKEN
-// ============================================================================
 router.get("/verify", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -200,9 +176,6 @@ router.get("/verify", async (req, res) => {
   }
 });
 
-// ============================================================================
-// DEBUG: Liste des utilisateurs (pour troubleshooting)
-// ============================================================================
 router.get("/debug/users", async (req, res) => {
   try {
     const result = await pool.query(
@@ -218,7 +191,7 @@ router.get("/debug/users", async (req, res) => {
       }))
     });
   } catch (err) {
-    console.error("Erreur debug/users:", err);
+    console.error("[AUTH] Erreur debug/users:", err);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
