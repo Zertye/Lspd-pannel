@@ -1,8 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const session = require("express-session");
-const PgSession = require("connect-pg-simple")(session);
+// SUPPRIMÉ: const session = ...
+// SUPPRIMÉ: const PgSession = ...
 const path = require("path");
 const fs = require("fs");
 
@@ -10,7 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === "production";
 
-console.log("👮 LSPD MDT System Starting...");
+console.log("👮 LSPD MDT System Starting (JWT Mode)...");
 
 // Health check
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
@@ -25,77 +25,34 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const startServer = async () => {
   try {
-    const pool = require("./config/database");
-    const passport = require("./config/passport");
     const initDatabase = require("./config/initDb");
     const initCentrale = require("./config/initCentrale");
     const { extractUser } = require("./middleware/auth");
-
-    // Init DB (Création tables & Grades LSPD)
-    await initDatabase();
     
-    // Init Système Centrale
+    // On garde passport.initialize() si tu utilises passport ailleurs, 
+    // mais on retire passport.session() car il nécessite express-session.
+    const passport = require("passport");
+    app.use(passport.initialize());
+
+    // Init DB
+    await initDatabase();
     await initCentrale();
 
-    app.use(session({
-      store: new PgSession({ pool: pool, tableName: "session", createTableIfMissing: true }),
-      secret: process.env.SESSION_SECRET || "lspd-secret-key",
-      resave: false, saveUninitialized: false,
-      proxy: true,
-      cookie: { 
-        secure: IS_PROD,
-        httpOnly: true, 
-        maxAge: 7 * 24 * 60 * 60 * 1000 
-      }
-    }));
+    // SUPPRIMÉ: Bloc app.use(session({...}))
+    // SUPPRIMÉ: Bloc "Patch ROBUSTE pour Passport"
+    // SUPPRIMÉ: app.use(passport.session());
 
-    // Patch ROBUSTE pour Passport 0.6+ - ajouter les méthodes manquantes à la session
-    // Ce patch doit s'exécuter AVANT passport.initialize()
-    app.use((req, res, next) => {
-      // Si pas de session, en créer une factice pour éviter les crashes
-      if (!req.session) {
-        req.session = {};
-      }
-      
-      // Toujours ajouter regenerate si manquant
-      if (typeof req.session.regenerate !== 'function') {
-        req.session.regenerate = (cb) => {
-          if (typeof cb === 'function') cb(null);
-        };
-      }
-      
-      // Toujours ajouter save si manquant
-      if (typeof req.session.save !== 'function') {
-        req.session.save = (cb) => {
-          if (typeof cb === 'function') cb(null);
-        };
-      }
-      
-      // Toujours ajouter destroy si manquant
-      if (typeof req.session.destroy !== 'function') {
-        req.session.destroy = (cb) => {
-          req.session = null;
-          if (typeof cb === 'function') cb(null);
-        };
-      }
-      
-      next();
-    });
-
-    app.use(passport.initialize());
-    app.use(passport.session());
-    
-    // Auth Middleware global
+    // Auth Middleware global (JWT uniquement)
     app.use("/api", extractUser);
 
-    // Routes Actives LSPD
+    // Routes
     app.use("/api/auth", require("./routes/auth"));
     app.use("/api/users", require("./routes/users"));
-    app.use("/api/appointments", require("./routes/appointments")); // Gestion Plaintes
+    app.use("/api/appointments", require("./routes/appointments"));
     app.use("/api/admin", require("./routes/admin"));
-    app.use("/api/centrale", require("./routes/centrale")); // Système Centrale
+    app.use("/api/centrale", require("./routes/centrale"));
 
-    // Routes "Legacy" (gardées pour éviter les erreurs d'import mais vides/inutilisées par le front)
+    // Routes Legacy
     app.use("/api/patients", require("./routes/patients")); 
     app.use("/api/reports", require("./routes/reports"));
     app.use("/api/diagnosis", require("./routes/diagnosis"));
