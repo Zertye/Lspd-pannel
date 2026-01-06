@@ -2294,7 +2294,7 @@ function PublicComplaint() {
           </div>
         </div>
         <form onSubmit={submit} className="space-y-4">
-          <InputField label="Identite (Nom Prenom)" placeholder="John Doe" value={form.patient_name} onChange={function(e) { setForm({...form, patient_name: e.target.value}) }} required />
+          <InputField label="Identite (Nom Prenom)" placeholder="Maurice Latoue" value={form.patient_name} onChange={function(e) { setForm({...form, patient_name: e.target.value}) }} required />
           <div className="grid grid-cols-2 gap-4">
             <InputField label="Telephone" placeholder="555-0100" value={form.patient_phone} onChange={function(e) { setForm({...form, patient_phone: e.target.value}) }} />
             <InputField label="Discord" placeholder="pseudo#0000" value={form.patient_discord} onChange={function(e) { setForm({...form, patient_discord: e.target.value}) }} />
