@@ -143,23 +143,57 @@ router.post("/logout", async (req, res) => {
       await logAction(req.user.id, "LOGOUT", "Déconnexion", 'auth', req.user.id, req);
     }
 
-    // Destruction session Passport
+    // Destruction session Passport - avec patch pour Passport 0.6+
     if (req.logout) {
-      req.logout((err) => {
-        if (err) console.error("⚠️ Logout error:", err);
-      });
+      // Patch: s'assurer que req.session existe et a les méthodes nécessaires
+      if (req.session) {
+        if (!req.session.regenerate) {
+          req.session.regenerate = (cb) => {
+            if (typeof cb === 'function') cb();
+          };
+        }
+        if (!req.session.save) {
+          req.session.save = (cb) => {
+            if (typeof cb === 'function') cb();
+          };
+        }
+      }
+      
+      // Utiliser une promesse pour gérer logout proprement
+      try {
+        await new Promise((resolve, reject) => {
+          req.logout((err) => {
+            if (err) {
+              console.error("⚠️ Logout error:", err);
+              // Ne pas rejeter, juste logger l'erreur
+            }
+            resolve();
+          });
+        });
+      } catch (logoutErr) {
+        console.error("⚠️ Logout promise error:", logoutErr);
+      }
     }
 
+    // Destruction de la session
     if (req.session?.destroy) {
-      req.session.destroy((err) => {
-        if (err) console.error("⚠️ Session destroy error:", err);
-      });
+      try {
+        await new Promise((resolve) => {
+          req.session.destroy((err) => {
+            if (err) console.error("⚠️ Session destroy error:", err);
+            resolve();
+          });
+        });
+      } catch (destroyErr) {
+        console.error("⚠️ Session destroy promise error:", destroyErr);
+      }
     }
 
     res.json({ success: true, message: "Déconnexion réussie" });
   } catch (err) {
     console.error("❌ Erreur Logout:", err);
-    res.status(500).json({ error: "Erreur serveur" });
+    // Toujours renvoyer succès car côté client le token sera supprimé
+    res.json({ success: true, message: "Déconnexion réussie" });
   }
 });
 
