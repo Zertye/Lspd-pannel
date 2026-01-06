@@ -1,10 +1,9 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-// SUPPRIMÉ: const session = ...
-// SUPPRIMÉ: const PgSession = ...
 const path = require("path");
 const fs = require("fs");
+const passport = require("passport"); // On garde l'import pour initialize()
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,31 +27,27 @@ const startServer = async () => {
     const initDatabase = require("./config/initDb");
     const initCentrale = require("./config/initCentrale");
     const { extractUser } = require("./middleware/auth");
-    
-    // On garde passport.initialize() si tu utilises passport ailleurs, 
-    // mais on retire passport.session() car il nécessite express-session.
-    const passport = require("passport");
-    app.use(passport.initialize());
 
-    // Init DB
+    // Init DB (Création tables & Grades LSPD)
     await initDatabase();
+    
+    // Init Système Centrale
     await initCentrale();
 
-    // SUPPRIMÉ: Bloc app.use(session({...}))
-    // SUPPRIMÉ: Bloc "Patch ROBUSTE pour Passport"
-    // SUPPRIMÉ: app.use(passport.session());
-
+    // Initialisation Passport (sans session)
+    app.use(passport.initialize());
+    
     // Auth Middleware global (JWT uniquement)
     app.use("/api", extractUser);
 
-    // Routes
+    // Routes Actives LSPD
     app.use("/api/auth", require("./routes/auth"));
     app.use("/api/users", require("./routes/users"));
-    app.use("/api/appointments", require("./routes/appointments"));
+    app.use("/api/appointments", require("./routes/appointments")); // Gestion Plaintes
     app.use("/api/admin", require("./routes/admin"));
-    app.use("/api/centrale", require("./routes/centrale"));
+    app.use("/api/centrale", require("./routes/centrale")); // Système Centrale
 
-    // Routes Legacy
+    // Routes "Legacy" (gardées pour structure)
     app.use("/api/patients", require("./routes/patients")); 
     app.use("/api/reports", require("./routes/reports"));
     app.use("/api/diagnosis", require("./routes/diagnosis"));
