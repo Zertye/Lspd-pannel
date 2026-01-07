@@ -29,9 +29,10 @@ console.log(`   Environment: ${IS_PROD ? "PRODUCTION" : "DEVELOPMENT"}`);
 if (helmet) {
   app.use(helmet({
     contentSecurityPolicy: false, // Désactivé pour permettre les inline styles
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    frameguard: false // Désactivé pour permettre l'affichage dans FiveM (iframe)
   }));
-  console.log("✅ Helmet activé");
+  console.log("✅ Helmet activé (iframe autorisée)");
 }
 
 // Compression (si installé)
